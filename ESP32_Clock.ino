@@ -1,0 +1,144 @@
+#include <Arduino.h>
+#include "config.h"
+#include "DisplayManager.h"
+#include "MyNetworkManager.h"
+#include "TimeManager.h"
+
+const char* ssid = "Alessandra";
+const char* password = "Aledias@70";
+
+MyNetworkManager internet(ssid, password);
+TimeManager timeManager;
+
+WeatherData latestWeather = {0.0f, 0.0f, 0.0f, 0.0f};
+bool weatherReady = false;
+
+String latestDisplayedTime = "";
+String latestDisplayedDate = "";
+WeatherData latestDisplayedWeather = {0.0f, 0.0f, 0.0f, 0.0f};
+bool weatherDisplayed = false;
+
+unsigned long lastSecondCheck = 0;
+const unsigned long SECOND_INTERVAL = 1000UL; // 1 segundo
+
+void weatherTask(void* param) {
+    for (;;) {
+        if (internet.isConnected()) {
+            latestWeather = internet.fetchWeatherData();
+            weatherReady = true;
+        } else {
+            Serial.println("WiFi desconectado. Tentando reconectar...");
+            internet.connect();
+        }
+        vTaskDelay(pdMS_TO_TICKS(600000)); // sync a cada 10 minutos
+    }
+}
+
+void ntpTask(void* param) {
+    for (;;) {
+        if (internet.isConnected()) {
+            timeManager.syncFromNTP();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(3600000)); // sync a cada 1 hora
+    }
+}
+
+void wifiTask(void* param) {
+    for (;;) {
+        if (!internet.isConnected()) {
+            Serial.println("WiFi desconectado. Tentando reconectar...");
+            internet.connect();
+        }
+        vTaskDelay(pdMS_TO_TICKS(900000)); // check a cada 15 minutos
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(2000);
+    
+    Display.begin();
+    Display.drawStaticClockFrame();
+
+    timeManager.begin();
+    internet.connect();
+
+    // Preferir RTC como fonte de tempo se disponível, caso contrário usar NTP
+    if (timeManager.isRTCValid()) {
+        timeManager.setFromRTC();
+    } else {
+        timeManager.syncFromNTP();
+    }
+
+    // fetch inicial de dados
+    latestWeather = internet.fetchWeatherData();
+    weatherReady = true;
+
+    xTaskCreatePinnedToCore(weatherTask, "Weather Task", 8192, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(ntpTask, "NTP Task", 8192, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(wifiTask, "WiFi Task", 8192, NULL, 1, NULL, 0);
+
+    latestDisplayedTime = timeManager.getDisplayTimeString();
+    latestDisplayedDate = timeManager.getDisplayDateString();
+
+    Display.updateTime(latestDisplayedTime.c_str());
+    Display.updateDate(latestDisplayedDate.c_str());
+    Display.updateAlarm("08:30");
+
+    if (weatherReady) {
+        Display.updateWeather(
+            (int)round(latestWeather.temperature),
+            (int)round(latestWeather.humidity),
+            (int)round(latestWeather.minTemp),
+            (int)round(latestWeather.maxTemp)
+        );
+    }
+}
+
+void loop() {
+    unsigned long now = millis();
+
+    if (now - lastSecondCheck >= SECOND_INTERVAL) {
+        lastSecondCheck = now;
+
+        if (!internet.isConnected()) {
+            Serial.println("[Loop] WiFi desconectado. Tentando reconectar...");
+            internet.connect();
+        }
+
+        timeManager.update();
+
+        String currentTime = timeManager.getDisplayTimeString();
+        String currentDate = timeManager.getDisplayDateString();
+
+        if (currentTime != latestDisplayedTime) {
+            latestDisplayedTime = currentTime;
+            Display.updateTime(currentTime.c_str());
+        }
+
+        if (currentDate != latestDisplayedDate) {
+            latestDisplayedDate = currentDate;
+            Display.updateDate(currentDate.c_str());
+        }
+
+        bool weatherChanged = !weatherDisplayed ||
+            latestWeather.temperature != latestDisplayedWeather.temperature ||
+            latestWeather.humidity    != latestDisplayedWeather.humidity    ||
+            latestWeather.minTemp     != latestDisplayedWeather.minTemp     ||
+            latestWeather.maxTemp     != latestDisplayedWeather.maxTemp;
+
+
+        // flagging possible concurrency issues. This might need an FreeRTOS mutex
+        if (weatherReady && weatherChanged) {
+            latestDisplayedWeather = latestWeather;
+            weatherDisplayed = true;
+            Display.updateWeather(
+                (int)round(latestWeather.temperature),
+                (int)round(latestWeather.humidity),
+                (int)round(latestWeather.minTemp),
+                (int)round(latestWeather.maxTemp)
+            );
+        }
+    }
+} 
