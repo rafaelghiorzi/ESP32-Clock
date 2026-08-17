@@ -3,12 +3,16 @@
 #include "DisplayManager.h"
 #include "MyNetworkManager.h"
 #include "TimeManager.h"
+#include "ButtonManager.h"
+#include "SoundManager.h"
 
 const char* ssid = "Alessandra";
 const char* password = "Aledias@70";
 
 MyNetworkManager internet(ssid, password);
 TimeManager timeManager;
+ButtonManager Buttons;
+SoundManager Sound;
 
 WeatherData latestWeather = {0.0f, 0.0f, 0.0f, 0.0f};
 bool weatherReady = false;
@@ -61,6 +65,9 @@ void setup() {
     Display.begin();
     Display.drawStaticClockFrame();
 
+    Buttons.begin();
+    Sound.begin();
+
     timeManager.begin();
     internet.connect();
 
@@ -98,6 +105,29 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
+
+    Buttons.update();
+
+    if (Buttons.button1Clicked()) {
+        Serial.println("[Button] BTN_1 clicked");
+        Sound.playClick();
+    }
+    if (Buttons.button2Clicked()) {
+        Serial.println("[Button] BTN_2 clicked");
+        Sound.playClick();
+    }
+    if (Buttons.button3Clicked()) {
+        Serial.println("[Button] BTN_3 clicked");
+        Sound.playClick();
+    }
+    if (Buttons.button4Clicked()) {
+        Serial.println("[Button] BTN_4 clicked");
+        Sound.playClick();
+    }
+    if (Buttons.button5Clicked()) {
+        Serial.println("[Button] BTN_5 clicked");
+        Sound.playClick();
+    }
 
     if (now - lastSecondCheck >= SECOND_INTERVAL) {
         lastSecondCheck = now;
