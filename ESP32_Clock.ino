@@ -13,17 +13,21 @@ MyNetworkManager internet(ssid, password);
 TimeManager timeManager;
 ButtonManager Buttons;
 SoundManager Sound;
+LGFX gfx;
 
+// ---- Estado do clima, agora protegido por mutex ----
+// weatherTask (core 0) escreve; loop() (core 1) lê. WeatherData tem 4 floats,
+// a cópia da struct NÃO é atômica -> sem mutex, loop() pode ler um estado
+// parcialmente escrito (metade dos campos do fetch antigo, metade do novo).
+static SemaphoreHandle_t weatherMutex;
 WeatherData latestWeather = {0.0f, 0.0f, 0.0f, 0.0f};
 bool weatherReady = false;
 
-String latestDisplayedTime = "";
-String latestDisplayedDate = "";
-WeatherData latestDisplayedWeather = {0.0f, 0.0f, 0.0f, 0.0f};
-bool weatherDisplayed = false;
+ClockData   lastSentToDisplay; // snapshot do que já foi enviado ao DisplayManager
+bool        firstDisplayUpdate = true;
 
 unsigned long lastSecondCheck = 0;
-const unsigned long SECOND_INTERVAL = 1000UL; // 1 segundo
+const unsigned long SECOND_INTERVAL = 1000UL;
 uint8_t currentLightingScene = 0;
 unsigned long lastLightingSceneMs = 0;
 const unsigned long LIGHTING_SCENE_RESET_MS = 10000UL;
@@ -31,8 +35,12 @@ const unsigned long LIGHTING_SCENE_RESET_MS = 10000UL;
 void weatherTask(void* param) {
     for (;;) {
         if (internet.isConnected()) {
-            latestWeather = internet.fetchWeatherData();
-            weatherReady = true;
+            WeatherData fresh = internet.fetchWeatherData(); // fetch fica fora do lock
+
+            xSemaphoreTake(weatherMutex, portMAX_DELAY);
+            latestWeather = fresh;
+            weatherReady  = true;
+            xSemaphoreGive(weatherMutex);
         } else {
             Serial.println("WiFi desconectado. Tentando reconectar...");
             internet.connect();
@@ -46,7 +54,6 @@ void ntpTask(void* param) {
         if (internet.isConnected()) {
             timeManager.syncFromNTP();
         }
-
         vTaskDelay(pdMS_TO_TICKS(3600000)); // sync a cada 1 hora
     }
 }
@@ -61,12 +68,23 @@ void wifiTask(void* param) {
     }
 }
 
+// Lê latestWeather de forma segura para uma cópia local.
+// Retorna false se ainda não há dado disponível.
+bool readWeatherSnapshot(WeatherData& out) {
+    xSemaphoreTake(weatherMutex, portMAX_DELAY);
+    bool ready = weatherReady;
+    if (ready) out = latestWeather;
+    xSemaphoreGive(weatherMutex);
+    return ready;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(2000);
-    
-    Display.begin();
-    Display.drawStaticClockFrame();
+
+    weatherMutex = xSemaphoreCreateMutex();
+
+    Display.begin(&gfx);
 
     Buttons.begin();
     Sound.begin();
@@ -74,36 +92,31 @@ void setup() {
     timeManager.begin();
     internet.connect();
 
-    // Preferir RTC como fonte de tempo se disponível, caso contrário usar NTP
-    if (timeManager.isRTCValid()) {
+    bool timeSynced = timeManager.syncFromNTP();
+    if (!timeSynced && timeManager.isRTCValid()) {
         timeManager.setFromRTC();
-    } else {
-        timeManager.syncFromNTP();
     }
 
-    // fetch inicial de dados
+    // fetch inicial síncrono, antes das tasks existirem -> sem race aqui
     latestWeather = internet.fetchWeatherData();
-    weatherReady = true;
+    weatherReady  = true;
 
     xTaskCreatePinnedToCore(weatherTask, "Weather Task", 8192, NULL, 1, NULL, 0);
     xTaskCreatePinnedToCore(ntpTask, "NTP Task", 8192, NULL, 1, NULL, 0);
     xTaskCreatePinnedToCore(wifiTask, "WiFi Task", 8192, NULL, 1, NULL, 0);
 
-    latestDisplayedTime = timeManager.getDisplayTimeString();
-    latestDisplayedDate = timeManager.getDisplayDateString();
+    // Monta o primeiro snapshot e manda de uma vez só para o display.
+    lastSentToDisplay.weekdayDate  = timeManager.getDisplayDateString();
+    lastSentToDisplay.time         = timeManager.getDisplayTimeString();
+    lastSentToDisplay.alarmTime    = "08:30";
+    lastSentToDisplay.alarmEnabled = true;
+    lastSentToDisplay.tempCurrent  = (int)round(latestWeather.temperature);
+    lastSentToDisplay.tempLow      = (int)round(latestWeather.minTemp);
+    lastSentToDisplay.tempHigh     = (int)round(latestWeather.maxTemp);
+    lastSentToDisplay.humidity     = (int)round(latestWeather.humidity);
 
-    Display.updateTime(latestDisplayedTime.c_str());
-    Display.updateDate(latestDisplayedDate.c_str());
-    Display.updateAlarm("08:30");
-
-    if (weatherReady) {
-        Display.updateWeather(
-            (int)round(latestWeather.temperature),
-            (int)round(latestWeather.humidity),
-            (int)round(latestWeather.minTemp),
-            (int)round(latestWeather.maxTemp)
-        );
-    }
+    Display.update(lastSentToDisplay); // uma única transação/push
+    firstDisplayUpdate = false;
 }
 
 void loop() {
@@ -124,8 +137,6 @@ void loop() {
         currentLightingScene = (currentLightingScene % 4) + 1;
         delay(300);
         internet.applyLightingScene(currentLightingScene);
-        lastLightingSceneMs = millis();
-        Sound.playClick();
     }
     if (Buttons.button4Clicked()) {
         Serial.println("[Button] BTN_4 clicked");
@@ -151,36 +162,24 @@ void loop() {
 
         timeManager.update();
 
-        String currentTime = timeManager.getDisplayTimeString();
-        String currentDate = timeManager.getDisplayDateString();
+        // Monta o snapshot inteiro do que a tela deveria mostrar agora...
+        ClockData next = lastSentToDisplay;
+        next.weekdayDate = timeManager.getDisplayDateString();
+        next.time        = timeManager.getDisplayTimeString();
+        // alarmTime/alarmEnabled ficam como estão até você ter um AlarmManager real
 
-        if (currentTime != latestDisplayedTime) {
-            latestDisplayedTime = currentTime;
-            Display.updateTime(currentTime.c_str());
+        WeatherData w;
+        if (readWeatherSnapshot(w)) {
+            next.tempCurrent = (int)round(w.temperature);
+            next.tempLow     = (int)round(w.minTemp);
+            next.tempHigh    = (int)round(w.maxTemp);
+            next.humidity    = (int)round(w.humidity);
         }
 
-        if (currentDate != latestDisplayedDate) {
-            latestDisplayedDate = currentDate;
-            Display.updateDate(currentDate.c_str());
-        }
-
-        bool weatherChanged = !weatherDisplayed ||
-            latestWeather.temperature != latestDisplayedWeather.temperature ||
-            latestWeather.humidity    != latestDisplayedWeather.humidity    ||
-            latestWeather.minTemp     != latestDisplayedWeather.minTemp     ||
-            latestWeather.maxTemp     != latestDisplayedWeather.maxTemp;
-
-
-        // flagging possible concurrency issues. This might need an FreeRTOS mutex
-        if (weatherReady && weatherChanged) {
-            latestDisplayedWeather = latestWeather;
-            weatherDisplayed = true;
-            Display.updateWeather(
-                (int)round(latestWeather.temperature),
-                (int)round(latestWeather.humidity),
-                (int)round(latestWeather.minTemp),
-                (int)round(latestWeather.maxTemp)
-            );
-        }
+        // ...e manda para o display em UMA chamada só. O próprio ClockDisplay
+        // decide internamente o que redesenhar (dirty-tracking por campo) e
+        // faz um único pushSprite() no fim -> nada de escrita parcial no painel.
+        Display.update(next);
+        lastSentToDisplay = next;
     }
-} 
+}

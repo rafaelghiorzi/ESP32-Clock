@@ -7,6 +7,10 @@ TimeManager::TimeManager()
 }
 
 void TimeManager::begin() {
+    // Os valores gravados no DS3231 sao tratados como horario local.
+    setenv("TZ", "BRT3", 1);
+    tzset();
+
     Wire.begin(Pins::I2C_SDA, Pins::I2C_SCL);
 
     rtcReady_ = rtc_.begin();
@@ -45,7 +49,7 @@ bool TimeManager::syncFromNTP() {
         return false;
     }
 
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTzTime("BRT3", "pool.ntp.org", "time.nist.gov");
 
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
@@ -81,9 +85,8 @@ bool TimeManager::isRTCValid() const {
 }
 
 void TimeManager::update() {
-    if (useRTC_ && rtcReady_) {
-        updateInternalClockFromRTC();
-    }
+    // O relogio interno do ESP32 avanca sozinho. Reescrever o horario a cada
+    // segundo a partir do RTC desfaz uma sincronizacao NTP recente.
 }
 
 String TimeManager::getTimeString() {

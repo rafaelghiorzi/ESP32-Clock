@@ -32,9 +32,6 @@ namespace Pins {
     constexpr uint8_t TOUCH_IRQ = 1;
 
     // ---------- Botões genéricos ----------
-    // TODO: você ainda não me passou esses pinos — preencher antes de compilar
-    // o módulo de botões. Deixei em 255 (inválido) de propósito para não
-    // mascarar o esquecimento com um valor plausível mas errado.
 
     constexpr uint8_t BTN_1 = 16;
     constexpr uint8_t BTN_2 = 17;
@@ -55,4 +52,7 @@ namespace DisplayCfg {
     constexpr uint32_t SPI_FREQ_WRITE = 40'000'000;
     constexpr uint32_t SPI_FREQ_READ  = 16'000'000;
     constexpr uint32_t SPI_FREQ_TOUCH = 2'500'000;
-} 
+
+    constexpr uint32_t BACKLIGHT_PWM_FREQ = 44'100;
+    constexpr uint8_t  BACKLIGHT_PWM_CHANNEL = 7; // canal dedicado, não reaproveite em outro periférico
+}

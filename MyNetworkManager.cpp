@@ -163,7 +163,8 @@ void MyNetworkManager::sendYeelight(const String& ip, const String& command) {
              fullCommand.length(),
              0);
     } else {
-        Serial.println("[Yeelight] Erro ao conectar");
+        Serial.print("[Yeelight] Erro ao conectar em ");
+        Serial.println(ip);
     }
 
     shutdown(sock, SHUT_RDWR);
@@ -171,8 +172,9 @@ void MyNetworkManager::sendYeelight(const String& ip, const String& command) {
 }
 
 void MyNetworkManager::applyLightingScene(uint8_t scene) {
-    const String ceilingLight = "192.168.0.182";
-    const String bedsideLight = "192.168.0.126";
+    // Mesmos IPs usados pelos comandos de toggle no loop principal.
+    const String ceilingLight = "192.168.1.157";
+    const String bedsideLight = "192.168.1.121";
 
     switch (scene) {
         case 1:
