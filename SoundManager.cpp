@@ -47,7 +47,7 @@ void SoundManager::begin() {
     config.sample_rate = sampleRate;
     config.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
     config.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
-    config.communication_format = I2S_COMM_FORMAT_STANDARDS;
+    config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     config.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
     config.dma_buf_count = 4;
     config.dma_buf_len = 256;

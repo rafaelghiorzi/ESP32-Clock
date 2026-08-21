@@ -1,5 +1,9 @@
 #include "MyNetworkManager.h"
 #include <ArduinoJson.h>
+#include <lwip/sockets.h>
+#include <lwip/inet.h>
+#include <sys/time.h>
+#include <cstring>
 
 MyNetworkManager::MyNetworkManager(const char* ssid, const char* password) {
     this->ssid = ssid;
@@ -126,3 +130,85 @@ WeatherData MyNetworkManager::fetchWeatherData() {
     
     return data;
 }
+
+void MyNetworkManager::sendYeelight(const String& ip, const String& command) {
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if (sock < 0) {
+        Serial.println("[Yeelight] Erro ao criar socket");
+        return;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 500000;
+
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
+               &timeout, sizeof(timeout));
+
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr, 0, sizeof(serverAddr));
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(55443);
+    serverAddr.sin_addr.s_addr = inet_addr(ip.c_str());
+
+    if (::connect(sock,
+                  reinterpret_cast<struct sockaddr*>(&serverAddr),
+                  sizeof(serverAddr)) == 0) {
+        String fullCommand = command + "\r\n";
+
+        send(sock,
+             fullCommand.c_str(),
+             fullCommand.length(),
+             0);
+    } else {
+        Serial.println("[Yeelight] Erro ao conectar");
+    }
+
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
+}
+
+void MyNetworkManager::applyLightingScene(uint8_t scene) {
+    const String ceilingLight = "192.168.0.182";
+    const String bedsideLight = "192.168.0.126";
+
+    switch (scene) {
+        case 1:
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_ct_abx\",\"params\":[6500,\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[100,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_rgb\",\"params\":[16777215,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[100,\"smooth\",500]}");
+            break;
+        case 2:
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_ct_abx\",\"params\":[3000,\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[50,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_rgb\",\"params\":[16750848,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[50,\"smooth\",500]}");
+            break;
+        case 3:
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"off\",\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_rgb\",\"params\":[26367,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[100,\"smooth\",500]}");
+            break;
+        case 4:
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_ct_abx\",\"params\":[3000,\"smooth\",500]}");
+            sendYeelight(ceilingLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[5,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_rgb\",\"params\":[16711680,\"smooth\",500]}");
+            sendYeelight(bedsideLight, "{\"id\":1,\"method\":\"set_bright\",\"params\":[100,\"smooth\",500]}");
+            break;
+        default:
+            Serial.printf("[Yeelight] Cena invalida: %u\n", scene);
+            break;
+    }
+}
+
+

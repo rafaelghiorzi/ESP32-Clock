@@ -36,11 +36,11 @@ namespace Pins {
     // o módulo de botões. Deixei em 255 (inválido) de propósito para não
     // mascarar o esquecimento com um valor plausível mas errado.
 
-    constexpr uint8_t BTN_1 = 255;
-    constexpr uint8_t BTN_2 = 255;
-    constexpr uint8_t BTN_3 = 255;
-    constexpr uint8_t BTN_4 = 255;
-    constexpr uint8_t BTN_5 = 255;
+    constexpr uint8_t BTN_1 = 16;
+    constexpr uint8_t BTN_2 = 17;
+    constexpr uint8_t BTN_3 = 18;
+    constexpr uint8_t BTN_4 = 8;
+    constexpr uint8_t BTN_5 = 48;
 
 } // namespace Pins
 

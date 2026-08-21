@@ -28,6 +28,9 @@ public:
     String makePostRequest(const String& url, const String& payload);
 
     WeatherData fetchWeatherData();
+
+    void sendYeelight(const String& ip, const String& command);
+    void applyLightingScene(uint8_t scene);
 };
 
 #endif // MY_NETWORK_MANAGER_H

@@ -6,8 +6,8 @@
 #include "ButtonManager.h"
 #include "SoundManager.h"
 
-const char* ssid = "Alessandra";
-const char* password = "Aledias@70";
+const char* ssid = "Rafael";
+const char* password = "18161512";
 
 MyNetworkManager internet(ssid, password);
 TimeManager timeManager;
@@ -24,6 +24,9 @@ bool weatherDisplayed = false;
 
 unsigned long lastSecondCheck = 0;
 const unsigned long SECOND_INTERVAL = 1000UL; // 1 segundo
+uint8_t currentLightingScene = 0;
+unsigned long lastLightingSceneMs = 0;
+const unsigned long LIGHTING_SCENE_RESET_MS = 10000UL;
 
 void weatherTask(void* param) {
     for (;;) {
@@ -110,14 +113,18 @@ void loop() {
 
     if (Buttons.button1Clicked()) {
         Serial.println("[Button] BTN_1 clicked");
-        Sound.playClick();
+        internet.sendYeelight("192.168.1.157", "{\"id\":1,\"method\":\"toggle\",\"params\":[]}");
     }
     if (Buttons.button2Clicked()) {
         Serial.println("[Button] BTN_2 clicked");
-        Sound.playClick();
+        internet.sendYeelight("192.168.1.121", "{\"id\":1,\"method\":\"toggle\",\"params\":[]}");
     }
     if (Buttons.button3Clicked()) {
         Serial.println("[Button] BTN_3 clicked");
+        currentLightingScene = (currentLightingScene % 4) + 1;
+        delay(300);
+        internet.applyLightingScene(currentLightingScene);
+        lastLightingSceneMs = millis();
         Sound.playClick();
     }
     if (Buttons.button4Clicked()) {
@@ -127,6 +134,11 @@ void loop() {
     if (Buttons.button5Clicked()) {
         Serial.println("[Button] BTN_5 clicked");
         Sound.playClick();
+    }
+
+    if (currentLightingScene != 0 &&
+        millis() - lastLightingSceneMs >= LIGHTING_SCENE_RESET_MS) {
+        currentLightingScene = 0;
     }
 
     if (now - lastSecondCheck >= SECOND_INTERVAL) {
