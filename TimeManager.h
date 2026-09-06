@@ -1,39 +1,49 @@
-#ifndef TIME_MANAGER_H
-#define TIME_MANAGER_H
-
+#pragma once
 #include <Arduino.h>
 #include <Wire.h>
 #include <RTClib.h>
 #include <time.h>
+#include <atomic>
+#include "config.h"
 
+// =====================================================================
+// TimeManager — Etapa 4: NTP + DS3231.
+//
+// Filosofia de "mínimo uso de rede": o DS3231 semeia o relógio de sistema
+// do ESP32 uma vez no boot (settimeofday), e dali em diante o próprio
+// ESP32 conta o tempo sozinho (time()/localtime_r() em memória, sem I2C
+// nem rede). Uma task no core 0 sincroniza via NTP raramente (a cada
+// TimeCfg::NTP_SYNC_INTERVAL_MS) só pra corrigir deriva do cristal, e
+// grava o resultado de volta no DS3231 — assim, mesmo sem WiFi por dias,
+// o relógio segue correto (RTC) e não regride se a rede cair.
+//
+// Sem mutex: o Wire/I2C do RTC só é tocado em dois momentos que nunca se
+// sobrepõem — uma vez em begin() (core 1, antes de qualquer task existir)
+// e depois só dentro da própria ntpSyncTask (core 0). getDisplay*String()
+// só lê o relógio de sistema (time()/localtime_r), que é seguro entre
+// tasks/cores sem lock adicional.
+// =====================================================================
 class TimeManager {
 public:
-    TimeManager();
-
     void begin();
-    void update();                  // read RTC / refresh current time
-    bool syncFromNTP();            // set system time from NTP and update RTC
-    bool setFromRTC();             // if RTC exists, prefer RTC as source
-    bool isRTCValid() const;
 
-    String getTimeString();
-    String getDateString();
-    String getDisplayTimeString();
-    String getDisplayDateString();
+    bool isTimeValid() const;   // true assim que há alguma hora confiável (RTC ou NTP)
+    bool isRTCPresent() const;
 
-    uint8_t hour() const;
-    uint8_t minute() const;
-    uint8_t second() const;
-    uint8_t day() const;
-    uint8_t month() const;
-    uint16_t year() const;
+    String getDisplayTimeString(); // "13:45"
+    String getDisplayDateString(); // "SEX, 04 SET"
+    uint8_t second() const;        // segundo atual (0-59) — usado pra piscar coisas na tela
 
 private:
-    RTC_DS3231 rtc_;
-    bool rtcReady_;
-    bool useRTC_;
+    static void ntpSyncTask(void* param);
+    bool syncFromNTP(); // bloqueante (até NTP_TIMEOUT_MS), só chamado dentro da ntpSyncTask
+    void seedFromRTC(); // settimeofday() a partir do DS3231, só chamado em begin()
 
-    void updateInternalClockFromRTC();
+    RTC_DS3231 _rtc;
+    bool _rtcPresent = false;
+    std::atomic<bool> _timeValid{false};
+
+    TaskHandle_t _ntpTaskHandle = nullptr;
 };
 
-#endif
+extern TimeManager RtcClock;

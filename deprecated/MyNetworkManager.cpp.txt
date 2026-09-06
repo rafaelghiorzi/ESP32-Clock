@@ -1,5 +1,6 @@
 #include "MyNetworkManager.h"
 #include <ArduinoJson.h>
+#include <esp_wifi.h>
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 #include <sys/time.h>
@@ -15,7 +16,14 @@ void MyNetworkManager::connect() {
 
     Serial.println("Connecting to WiFi...");
     WiFi.mode(WIFI_STA);
+
+    // Ativa economia de energia
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+
     WiFi.begin(ssid, password);
+    
+    // diminuindo a força do sinal porque o roteador está perto
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
     Serial.print("Connecting to WiFi: ");
     Serial.println(ssid);

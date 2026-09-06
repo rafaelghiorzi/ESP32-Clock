@@ -1,185 +1,155 @@
 #include <Arduino.h>
 #include "config.h"
 #include "DisplayManager.h"
-#include "MyNetworkManager.h"
-#include "TimeManager.h"
-#include "ButtonManager.h"
 #include "SoundManager.h"
+#include "ConnManager.h"
+#include "ButtonManager.h"
+#include "TimeManager.h"
+#include "AlarmManager.h"
+#include "WebManager.h"
+#include "AlarmSample.h" // "ding" sintetizado, prova de conceito do playSample() — ver BTN5
 
-const char* ssid = "Rafael";
-const char* password = "18161512";
-
-MyNetworkManager internet(ssid, password);
-TimeManager timeManager;
-ButtonManager Buttons;
-SoundManager Sound;
-LGFX gfx;
-
-// ---- Estado do clima, agora protegido por mutex ----
-// weatherTask (core 0) escreve; loop() (core 1) lê. WeatherData tem 4 floats,
-// a cópia da struct NÃO é atômica -> sem mutex, loop() pode ler um estado
-// parcialmente escrito (metade dos campos do fetch antigo, metade do novo).
-static SemaphoreHandle_t weatherMutex;
-WeatherData latestWeather = {0.0f, 0.0f, 0.0f, 0.0f};
-bool weatherReady = false;
-
-ClockData   lastSentToDisplay; // snapshot do que já foi enviado ao DisplayManager
-bool        firstDisplayUpdate = true;
-
-unsigned long lastSecondCheck = 0;
-const unsigned long SECOND_INTERVAL = 1000UL;
-uint8_t currentLightingScene = 0;
-unsigned long lastLightingSceneMs = 0;
-const unsigned long LIGHTING_SCENE_RESET_MS = 10000UL;
-
-void weatherTask(void* param) {
-    for (;;) {
-        if (internet.isConnected()) {
-            WeatherData fresh = internet.fetchWeatherData(); // fetch fica fora do lock
-
-            xSemaphoreTake(weatherMutex, portMAX_DELAY);
-            latestWeather = fresh;
-            weatherReady  = true;
-            xSemaphoreGive(weatherMutex);
-        } else {
-            Serial.println("WiFi desconectado. Tentando reconectar...");
-            internet.connect();
-        }
-        vTaskDelay(pdMS_TO_TICKS(600000)); // sync a cada 10 minutos
-    }
-}
-
-void ntpTask(void* param) {
-    for (;;) {
-        if (internet.isConnected()) {
-            timeManager.syncFromNTP();
-        }
-        vTaskDelay(pdMS_TO_TICKS(3600000)); // sync a cada 1 hora
-    }
-}
-
-void wifiTask(void* param) {
-    for (;;) {
-        if (!internet.isConnected()) {
-            Serial.println("WiFi desconectado. Tentando reconectar...");
-            internet.connect();
-        }
-        vTaskDelay(pdMS_TO_TICKS(900000)); // check a cada 15 minutos
-    }
-}
-
-// Lê latestWeather de forma segura para uma cópia local.
-// Retorna false se ainda não há dado disponível.
-bool readWeatherSnapshot(WeatherData& out) {
-    xSemaphoreTake(weatherMutex, portMAX_DELAY);
-    bool ready = weatherReady;
-    if (ready) out = latestWeather;
-    xSemaphoreGive(weatherMutex);
-    return ready;
-}
+static uint8_t currentScene = 0;
+static uint32_t lastWeatherLogMs = 0;
+static uint32_t lastDisplayMs = 0;
+constexpr uint32_t WEATHER_LOG_INTERVAL_MS = 30'000;
+constexpr uint32_t DISPLAY_TICK_INTERVAL_MS = 1'000;
 
 void setup() {
     Serial.begin(115200);
-    delay(2000);
+    delay(200); // pequena folga para o monitor serial (USB CDC) anexar
 
-    weatherMutex = xSemaphoreCreateMutex();
+    Serial.println();
+    Serial.println("=== ESP32_Clock — boot (Etapas 1-5 + alarmes) ===");
 
-    Display.begin(&gfx);
-
-    Buttons.begin();
+    Display.begin();   // sprite + ciclo de cores de bring-up, sem conteúdo dinâmico ainda
     Sound.begin();
+    Sound.beepBoot();  // beep curto de confirmação, não a melodia de bancada
 
-    timeManager.begin();
-    internet.connect();
-
-    bool timeSynced = timeManager.syncFromNTP();
-    if (!timeSynced && timeManager.isRTCValid()) {
-        timeManager.setFromRTC();
-    }
-
-    // fetch inicial síncrono, antes das tasks existirem -> sem race aqui
-    latestWeather = internet.fetchWeatherData();
-    weatherReady  = true;
-
-    xTaskCreatePinnedToCore(weatherTask, "Weather Task", 8192, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(ntpTask, "NTP Task", 8192, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(wifiTask, "WiFi Task", 8192, NULL, 1, NULL, 0);
-
-    // Monta o primeiro snapshot e manda de uma vez só para o display.
-    lastSentToDisplay.weekdayDate  = timeManager.getDisplayDateString();
-    lastSentToDisplay.time         = timeManager.getDisplayTimeString();
-    lastSentToDisplay.alarmTime    = "08:30";
-    lastSentToDisplay.alarmEnabled = true;
-    lastSentToDisplay.tempCurrent  = (int)round(latestWeather.temperature);
-    lastSentToDisplay.tempLow      = (int)round(latestWeather.minTemp);
-    lastSentToDisplay.tempHigh     = (int)round(latestWeather.maxTemp);
-    lastSentToDisplay.humidity     = (int)round(latestWeather.humidity);
-
-    Display.update(lastSentToDisplay); // uma única transação/push
-    firstDisplayUpdate = false;
+    Conn.begin();      // WiFi + fetch de clima (memória) + fila Yeelight, tudo no core 0
+    RtcClock.begin();  // DS3231 semeia a hora agora; NTP corrige de vez em quando (core 0)
+    Alarms.begin();    // carrega os 5 slots de alarme da NVS
+    Web.begin();       // servidor HTTP pra configurar os alarmes pelo celular/PC
+    Buttons.begin();
 }
 
 void loop() {
-    unsigned long now = millis();
-
     Buttons.update();
 
-    if (Buttons.button1Clicked()) {
-        Serial.println("[Button] BTN_1 clicked");
-        internet.sendYeelight("192.168.1.157", "{\"id\":1,\"method\":\"toggle\",\"params\":[]}");
-    }
-    if (Buttons.button2Clicked()) {
-        Serial.println("[Button] BTN_2 clicked");
-        internet.sendYeelight("192.168.1.121", "{\"id\":1,\"method\":\"toggle\",\"params\":[]}");
-    }
-    if (Buttons.button3Clicked()) {
-        Serial.println("[Button] BTN_3 clicked");
-        currentLightingScene = (currentLightingScene % 4) + 1;
-        delay(300);
-        internet.applyLightingScene(currentLightingScene);
-    }
-    if (Buttons.button4Clicked()) {
-        Serial.println("[Button] BTN_4 clicked");
-        Sound.playClick();
-    }
-    if (Buttons.button5Clicked()) {
-        Serial.println("[Button] BTN_5 clicked");
-        Sound.playClick();
-    }
+    bool b1 = Buttons.button1Clicked();
+    bool b2 = Buttons.button2Clicked();
+    bool b3 = Buttons.button3Clicked();
+    bool b4 = Buttons.button4Clicked();
+    bool b5 = Buttons.button5Clicked();
 
-    if (currentLightingScene != 0 &&
-        millis() - lastLightingSceneMs >= LIGHTING_SCENE_RESET_MS) {
-        currentLightingScene = 0;
-    }
-
-    if (now - lastSecondCheck >= SECOND_INTERVAL) {
-        lastSecondCheck = now;
-
-        if (!internet.isConnected()) {
-            Serial.println("[Loop] WiFi desconectado. Tentando reconectar...");
-            internet.connect();
+    if (Alarms.isRinging()) {
+        // BTN5 tem lógica própria (soneca na 1a vez, desliga na 2a).
+        // BTN4 sempre desliga. B1/B2/B3 também só desligam aqui — não
+        // queremos acidentalmente mexer nas luzes às 6h tentando calar
+        // o alarme.
+        if (b5) {
+            Alarms.handleButton5();
+        } else if (b1 || b2 || b3 || b4) {
+            Alarms.handleButton4();
         }
+    } else {
+        if (b1) {
+            Serial.println("[Button] BTN1 -> toggle luz bedside");
+            Conn.requestYeelightToggle(Yeelight::BEDSIDE_IP);
+            Sound.playClick();
+        }
+        if (b2) {
+            Serial.println("[Button] BTN2 -> toggle luz teto");
+            Conn.requestYeelightToggle(Yeelight::CEILING_IP);
+            Sound.playClick();
+        }
+        if (b3) {
+            currentScene = (currentScene % 4) + 1;
+            Serial.printf("[Button] BTN3 -> cena de iluminação %u\n", currentScene);
+            Conn.requestLightingScene(currentScene);
+            Sound.playClick();
+        }
+        if (b4) {
+            Serial.println("[Button] BTN4 -> click");
+            Sound.playClick();
+        }
+        if (b5) {
+            // Teste do SoundManager::playSample() (item novo, ver conversa) —
+            // toca a amostra PCM de AlarmSample.h em vez do clique de sempre.
+            Serial.println("[Button] BTN5 -> teste de playSample() (AlarmSample.h)");
+            Sound.playSample(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
+        }
+    }
 
-        timeManager.update();
+    uint32_t now = millis();
 
-        // Monta o snapshot inteiro do que a tela deveria mostrar agora...
-        ClockData next = lastSentToDisplay;
-        next.weekdayDate = timeManager.getDisplayDateString();
-        next.time        = timeManager.getDisplayTimeString();
-        // alarmTime/alarmEnabled ficam como estão até você ter um AlarmManager real
+    // Verifica alarmes 1x/seg (throttle interno por minuto já embutido).
+    Alarms.update();
 
+    // Etapa 2: só loga o snapshot de clima em memória.
+    if (now - lastWeatherLogMs >= WEATHER_LOG_INTERVAL_MS) {
+        lastWeatherLogMs = now;
         WeatherData w;
-        if (readWeatherSnapshot(w)) {
-            next.tempCurrent = (int)round(w.temperature);
-            next.tempLow     = (int)round(w.minTemp);
-            next.tempHigh    = (int)round(w.maxTemp);
-            next.humidity    = (int)round(w.humidity);
+        if (Conn.getWeatherSnapshot(w)) {
+            Serial.printf("[Weather] snapshot em memória: temp=%.1fC min=%.1f max=%.1f umid=%.0f%%\n",
+                          w.temperature, w.minTemp, w.maxTemp, w.humidity);
+        } else {
+            Serial.println("[Weather] ainda sem dado (aguardando primeiro fetch)");
         }
-
-        // ...e manda para o display em UMA chamada só. O próprio ClockDisplay
-        // decide internamente o que redesenhar (dirty-tracking por campo) e
-        // faz um único pushSprite() no fim -> nada de escrita parcial no painel.
-        Display.update(next);
-        lastSentToDisplay = next;
     }
+
+    // Etapa 5: monta o snapshot da tela e manda pro DisplayManager, que
+    // decide sozinho o que redesenhar (dirty-tracking por campo) e só
+    // faz o pushSprite físico se algo de fato mudou.
+    if (now - lastDisplayMs >= DISPLAY_TICK_INTERVAL_MS) {
+        lastDisplayMs = now;
+
+        if (RtcClock.isTimeValid()) {
+            ClockData data;
+            data.weekdayDate = RtcClock.getDisplayDateString();
+            data.time        = RtcClock.getDisplayTimeString();
+
+            data.alarmRinging = Alarms.isRinging();
+            if (data.alarmRinging) {
+                // Enquanto toca: mostra o nome do alarme piscando no lugar
+                // da hora (fase liga/desliga amarrada ao segundo real do
+                // relógio, então o pisca-pisca fica com cadência estável).
+                data.ringingLabel = Alarms.getRingingLabel();
+                data.blinkOn = (RtcClock.second() % 2 == 0);
+            } else {
+                String msg;
+                if (Alarms.getMessage(msg)) {
+                    // Mensagem transiente (ex.: "Toque em 5 minutos!" logo
+                    // após o BTN5 ativar a soneca) tem prioridade sobre o
+                    // próximo alarme por alguns segundos.
+                    data.transientMessage = msg;
+                } else {
+                    AlarmManager::NextAlarmInfo next = Alarms.getNextAlarm();
+                    if (next.any) {
+                        char buf[6];
+                        snprintf(buf, sizeof(buf), "%02d:%02d", next.hour, next.minute);
+                        data.alarmTime = buf;
+                        data.alarmEnabled = true;
+                    } else {
+                        data.alarmTime = "--:--";
+                        data.alarmEnabled = false;
+                    }
+                }
+            }
+
+            WeatherData w;
+            if (Conn.getWeatherSnapshot(w)) {
+                data.tempCurrent = (int)(w.temperature + 0.5f);
+                data.tempLow     = (int)(w.minTemp + 0.5f);
+                data.tempHigh    = (int)(w.maxTemp + 0.5f);
+                data.humidity    = (int)(w.humidity + 0.5f);
+            }
+
+            Display.update(data);
+        }
+        // Sem hora válida ainda (sem RTC e sem NTP): tela fica preta
+        // (deixada assim pelo boot color test) até a primeira hora chegar.
+    }
+
+    delay(20); // pequeno respiro pro scheduler; debounce dos botões é de 30ms, sobra margem
 }

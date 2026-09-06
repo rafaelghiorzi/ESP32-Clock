@@ -1,58 +1,48 @@
 #include "DisplayManager.h"
-#include <Arduino.h>
-// =====================================================================
-// Bitmaps (gerados pelo Lopaka) — ficam encapsulados aqui, não em main.cpp
-// TODO: ainda não estão sendo usados em drawAlarm()/drawWeather() abaixo.
-// =====================================================================
 
-static const unsigned char PROGMEM image_arrow_down_bits[] = {
+DisplayManager Display;
+
+// =====================================================================
+// Ícones (bitmaps XBM, gerados originalmente pelo Lopaka) — restaurados
+// do código legado (deprecated/DisplayManager.cpp.txt), mesmos bytes.
+// =====================================================================
+static const unsigned char image_arrow_down_bits[] = {
     0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,
     0xcc,0xc0,0xcc,0xc0,0x3f,0x00,0x3f,0x00,0x0c,0x00,0x0c,0x00
 };
 
-static const unsigned char PROGMEM image_arrow_up_bits[] = {
+static const unsigned char image_arrow_up_bits[] = {
     0x0c,0x00,0x0c,0x00,0x3f,0x00,0x3f,0x00,0xcc,0xc0,0xcc,0xc0,0x0c,0x00,0x0c,0x00,
     0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00,0x0c,0x00
 };
 
-static const unsigned char PROGMEM image_clock_alarm_bits[] = {
+static const unsigned char image_clock_alarm_bits[] = {
     0x79,0x3c,0xb3,0x9a,0xed,0x6e,0xd0,0x16,0xa0,0x0a,0x41,0x04,0x41,0x04,0x81,0x02,
     0xc1,0x06,0x82,0x02,0x44,0x04,0x48,0x04,0x20,0x08,0x10,0x10,0x2d,0x68,0x43,0x84
 };
 
-static const unsigned char PROGMEM image_drop_bits[] = {
+static const unsigned char image_drop_bits[] = {
     0x00,0x00,0x03,0xc0,0x06,0x60,0x0c,0x30,0x0c,0x30,0x18,0x18,0x10,0x08,0x10,0x08,
     0x10,0x08,0x10,0x28,0x10,0x28,0x18,0xf8,0x1c,0x38,0x0f,0xf0,0x00,0x00,0x00,0x00
 };
 
-// TODO: confirmar propósito — 1 byte só, parece artefato do export do Lopaka
-static const unsigned char PROGMEM image_paint_17_bits[] = { 0x80 };
-
-static const unsigned char PROGMEM image_weather_temperature_bits[] = {
+static const unsigned char image_weather_temperature_bits[] = {
     0x1c,0x00,0x22,0x02,0x2b,0x05,0x2a,0x02,0x2b,0x38,0x2a,0x60,0x2b,0x40,0x2a,0x40,
     0x2a,0x60,0x49,0x38,0x9c,0x80,0xae,0x80,0xbe,0x80,0x9c,0x80,0x41,0x00,0x3e,0x00
 };
-
-// Layout de referência (baseado no mockup)
-namespace Layout {
-    constexpr int DATE_Y    = 50;
-    constexpr int TIME_Y    = 80;   // topo do texto grande da hora
-    constexpr int ALARM_Y   = 160;
-    constexpr int WEATHER_Y = 190;
-}
-
-// Instância global declarada em DisplayManager.h — DEFINIÇÃO única aqui.
-DisplayManager Display;
 
 constexpr uint16_t rgb565(uint8_t red, uint8_t green, uint8_t blue) {
     return ((red & 0xF8) << 8) | ((green & 0xFC) << 3) | (blue >> 3);
 }
 
-constexpr uint16_t PASTEL_RED = rgb565(255, 145, 155);
-constexpr uint16_t PASTEL_CYAN = rgb565(150, 235, 235);
-constexpr uint16_t PASTEL_BLUE = rgb565(125, 190, 255);
+constexpr uint16_t PASTEL_RED    = rgb565(255, 145, 155);
+constexpr uint16_t PASTEL_CYAN   = rgb565(150, 235, 235);
+constexpr uint16_t PASTEL_BLUE   = rgb565(125, 190, 255);
 constexpr uint16_t PASTEL_ORANGE = rgb565(255, 190, 125);
 
+// Escalador de bitmap 1bpp "nearest neighbor" pixel a pixel — os ícones
+// são pequenos (15x16 no máximo) e só redesenhados quando o campo muda,
+// então o custo é desprezível.
 static void drawXbm(LGFX_Sprite& frame, int x, int y, const unsigned char* bitmap,
                     int sourceWidth, int sourceHeight, int drawWidth,
                     int drawHeight, uint16_t color) {
@@ -69,100 +59,163 @@ static void drawXbm(LGFX_Sprite& frame, int x, int y, const unsigned char* bitma
     }
 }
 
-void DisplayManager::begin(LGFX* gfx) {
-    _gfx = gfx;
+// =====================================================================
+// Layout — mesmas coordenadas/tamanhos já validados no mockup estático
+// da Etapa 1. GLYPH_BASE_HEIGHT é a altura da fonte padrão (GLCD/Font0)
+// em textSize=1 — usada pra calcular a altura real do retângulo de
+// limpeza de cada campo (ver comentário no .h sobre a causa do bug de
+// sobreposição do código legado).
+// =====================================================================
+namespace Layout {
+    constexpr int GLYPH_BASE_HEIGHT = 8;
+    constexpr int ROW_PADDING = 4;
 
-    _gfx->init();
-    _gfx->setRotation(DisplayCfg::ROTATION);
-    _gfx->setBrightness(255);
+    constexpr int DATE_Y = 20;      constexpr uint8_t DATE_SIZE = 2;
+    constexpr int TIME_Y = 60;      constexpr uint8_t TIME_SIZE = 6;
+    constexpr int ALARM_Y = 150;    constexpr uint8_t ALARM_SIZE = 2;
+    constexpr int WEATHER_Y = 190;  constexpr uint8_t WEATHER_SIZE = 2;
 
-    // Aloca o framebuffer inteiro em PSRAM. Em 320x240x16bpp = ~150KB,
-    // tranquilo para os ~2MB de PSRAM do N8R2.
+    constexpr int rowHeight(uint8_t textSize) {
+        return GLYPH_BASE_HEIGHT * textSize + ROW_PADDING * 2;
+    }
+}
+
+void DisplayManager::begin() {
+    Serial.println("[Display] init()...");
+    _gfx.init();
+    _gfx.setRotation(DisplayCfg::ROTATION);
+
+    runBootColorTest();
+
+    // Framebuffer inteiro em PSRAM (240x320x16bpp = ~150KB, folga enorme
+    // nos 8MB octal da N16R8).
     _frame.setPsram(true);
     _frame.setColorDepth(16);
-    _frame.createSprite(_gfx->width(), _gfx->height());
+    _frame.createSprite(_gfx.width(), _gfx.height());
     _frame.fillScreen(TFT_BLACK);
 
     _first = true;
+    Serial.println("[Display] pronto, aguardando primeiro update()");
 }
 
-void DisplayManager::setBrightness(uint8_t value) {
-    // Chame isso só quando o valor realmente mudar (ex: transição dia/noite,
-    // toque do usuário). NUNCA dentro do loop de renderização — reconfigurar
-    // o LEDC a cada frame é uma causa clássica de flicker no backlight.
-    _gfx->setBrightness(value);
+void DisplayManager::runBootColorTest() {
+    const uint32_t colors[] = { TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE, TFT_BLACK };
+    const char* names[]     = { "RED", "GREEN", "BLUE", "WHITE", "BLACK" };
+    for (int i = 0; i < 5; i++) {
+        _gfx.fillScreen(colors[i]);
+        _gfx.setTextDatum(top_left);
+        _gfx.setTextColor(i == 4 ? TFT_WHITE : TFT_BLACK);
+        _gfx.setTextSize(2);
+        _gfx.setCursor(10, 10);
+        _gfx.println(names[i]);
+        delay(500);
+    }
 }
 
 void DisplayManager::update(const ClockData& data) {
-    if (!_first && !(data != _last)) return; // nada mudou, não faz nada
+    if (!_first && !(data != _last)) return; // nada mudou, não faz nada (nem push)
 
-    if (_first || data.weekdayDate != _last.weekdayDate) drawDate(data.weekdayDate);
-    if (_first || data.time        != _last.time)        drawTime(data.time);
-    if (_first || data.alarmTime   != _last.alarmTime ||
-                  data.alarmEnabled != _last.alarmEnabled) drawAlarm(data.alarmTime, data.alarmEnabled);
-    if (_first || data.tempCurrent != _last.tempCurrent ||
-                  data.tempLow     != _last.tempLow ||
-                  data.tempHigh    != _last.tempHigh ||
-                  data.humidity    != _last.humidity)
+    if (_first || data.weekdayDate != _last.weekdayDate)
+        drawDate(data.weekdayDate);
+
+    if (_first || data.time != _last.time)
+        drawTime(data.time);
+
+    bool alarmChanged = data.alarmTime != _last.alarmTime || data.alarmEnabled != _last.alarmEnabled ||
+                        data.alarmRinging != _last.alarmRinging || data.ringingLabel != _last.ringingLabel ||
+                        data.blinkOn != _last.blinkOn || data.transientMessage != _last.transientMessage;
+    if (_first || alarmChanged)
+        drawAlarm(data);
+
+    if (_first || data.tempCurrent != _last.tempCurrent || data.tempLow != _last.tempLow ||
+                  data.tempHigh != _last.tempHigh || data.humidity != _last.humidity)
         drawWeather(data.tempCurrent, data.tempLow, data.tempHigh, data.humidity);
 
-    // Único push físico para o painel, atômico -> zero tearing/corrupção,
-    // não importa quantos campos foram redesenhados no buffer acima.
-    _gfx->startWrite();
-    _frame.pushSprite(_gfx, 0, 0);
-    _gfx->endWrite();
+    // Único push físico pro painel, atômico -> zero tearing, não importa
+    // quantos campos foram redesenhados no sprite acima.
+    _gfx.startWrite();
+    _frame.pushSprite(&_gfx, 0, 0);
+    _gfx.endWrite();
 
-    _last  = data;
+    _last = data;
     _first = false;
 }
 
 void DisplayManager::drawDate(const String& text) {
     int w = _frame.width();
-    _frame.fillRect(0, Layout::DATE_Y - 4, w, 34, TFT_BLACK); // limpa só a faixa da data
+    int h = Layout::rowHeight(Layout::DATE_SIZE);
+    _frame.fillRect(0, Layout::DATE_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+
     _frame.setTextDatum(top_center);
     _frame.setTextColor(TFT_WHITE);
-    _frame.setTextSize(2);
+    _frame.setTextSize(Layout::DATE_SIZE);
     _frame.drawString(text, w / 2, Layout::DATE_Y);
 }
 
 void DisplayManager::drawTime(const String& text) {
     int w = _frame.width();
-    _frame.fillRect(0, Layout::TIME_Y - 10, w, 90, TFT_BLACK); // limpa a faixa da hora
+    int h = Layout::rowHeight(Layout::TIME_SIZE);
+    _frame.fillRect(0, Layout::TIME_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+
     _frame.setTextDatum(top_center);
     _frame.setTextColor(TFT_WHITE);
-    _frame.setTextSize(9);
+    _frame.setTextSize(Layout::TIME_SIZE);
     _frame.drawString(text, w / 2, Layout::TIME_Y);
 }
 
-void DisplayManager::drawAlarm(const String& text, bool enabled) {
+void DisplayManager::drawAlarm(const ClockData& data) {
     int w = _frame.width();
+    int h = Layout::rowHeight(Layout::ALARM_SIZE);
+    _frame.fillRect(0, Layout::ALARM_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+
+    if (data.alarmRinging) {
+        // Fase "apagada" do pisca-pisca: só limpa (já feito acima) e sai.
+        if (!data.blinkOn) return;
+
+        _frame.setTextDatum(top_center);
+        _frame.setTextColor(TFT_RED);
+        _frame.setTextSize(Layout::ALARM_SIZE);
+        _frame.drawString(data.ringingLabel, w / 2, Layout::ALARM_Y);
+        return;
+    }
+
+    if (data.transientMessage.length() > 0) {
+        _frame.setTextDatum(top_center);
+        _frame.setTextColor(TFT_ORANGE);
+        _frame.setTextSize(Layout::ALARM_SIZE);
+        _frame.drawString(data.transientMessage, w / 2, Layout::ALARM_Y);
+        return;
+    }
+
     constexpr int ICON_WIDTH = 15;
     constexpr int ICON_HEIGHT = 16;
     constexpr int ICON_TEXT_GAP = 4;
 
-    _frame.fillRect(0, Layout::ALARM_Y - 4, w, 28, TFT_BLACK);
-    _frame.setTextColor(enabled ? TFT_WHITE : TFT_GOLD);
-    _frame.setTextSize(2);
+    _frame.setTextColor(data.alarmEnabled ? TFT_WHITE : TFT_GOLD);
+    _frame.setTextSize(Layout::ALARM_SIZE);
 
-    int textWidth = _frame.textWidth(text);
+    int textWidth = _frame.textWidth(data.alarmTime);
     int groupWidth = ICON_WIDTH + ICON_TEXT_GAP + textWidth;
     int groupX = (w - groupWidth) / 2;
+
     drawXbm(_frame, groupX, Layout::ALARM_Y, image_clock_alarm_bits, 15, 16,
             ICON_WIDTH, ICON_HEIGHT,
-            enabled ? PASTEL_ORANGE : TFT_DARKGREY);
+            data.alarmEnabled ? PASTEL_ORANGE : TFT_DARKGREY);
+
     _frame.setTextDatum(top_left);
-    _frame.drawString(text, groupX + ICON_WIDTH + ICON_TEXT_GAP, Layout::ALARM_Y);
+    _frame.drawString(data.alarmTime, groupX + ICON_WIDTH + ICON_TEXT_GAP, Layout::ALARM_Y);
 }
 
 void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
     int w = _frame.width();
+    int h = Layout::rowHeight(Layout::WEATHER_SIZE);
     constexpr int ICON_TEXT_GAP = 4;
     constexpr int ITEM_GAP = 14;
 
-    _frame.fillRect(0, Layout::WEATHER_Y - 4, w, 28, TFT_BLACK);
-    _frame.setTextSize(2);
-
+    _frame.fillRect(0, Layout::WEATHER_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+    _frame.setTextSize(Layout::WEATHER_SIZE);
     _frame.setTextColor(TFT_WHITE);
+
     String values[] = {
         String(cur),
         String(lo),
@@ -175,13 +228,8 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
         image_arrow_up_bits,
         image_drop_bits
     };
-    uint16_t iconColors[] = {
-        PASTEL_RED,
-        PASTEL_CYAN,
-        PASTEL_RED,
-        PASTEL_BLUE
-    };
-    int iconWidths[] = {16, 10, 10, 16};
+    uint16_t iconColors[] = { PASTEL_RED, PASTEL_CYAN, PASTEL_RED, PASTEL_BLUE };
+    int iconWidths[]  = {16, 10, 10, 16};
     int iconHeights[] = {16, 14, 14, 16};
     bool isTemperature[] = {true, true, true, false};
 
@@ -189,9 +237,7 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
     int totalWidth = ITEM_GAP * 3;
     for (int index = 0; index < 4; ++index) {
         itemWidths[index] = iconWidths[index] + ICON_TEXT_GAP + _frame.textWidth(values[index]);
-        if (isTemperature[index]) {
-            itemWidths[index] += 8 + _frame.textWidth("C");
-        }
+        if (isTemperature[index]) itemWidths[index] += 8 + _frame.textWidth("C");
         totalWidth += itemWidths[index];
     }
 
@@ -201,14 +247,17 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
             index == 1 || index == 2 ? 10 : 16,
             index == 1 || index == 2 ? 14 : 16,
             iconWidths[index], iconHeights[index], iconColors[index]);
+
         _frame.setTextDatum(top_left);
         int textX = x + iconWidths[index] + ICON_TEXT_GAP;
         _frame.drawString(values[index], textX, Layout::WEATHER_Y);
+
         if (isTemperature[index]) {
             int degreeX = textX + _frame.textWidth(values[index]) + 3;
             _frame.drawCircle(degreeX, Layout::WEATHER_Y + 3, 2, TFT_WHITE);
             _frame.drawString("C", degreeX + 5, Layout::WEATHER_Y);
         }
+
         x += itemWidths[index] + ITEM_GAP;
     }
 }

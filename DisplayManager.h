@@ -2,140 +2,124 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include "config.h"
-#include <cstdint>
 
-// -----------------------------------------------------------------------
-// Classe de baixo nível (config de barramento/painel/touch da LovyanGFX)
-// -----------------------------------------------------------------------
-
+// =====================================================================
+// LGFX — ILI9341 via SPI, sem touch, backlight ligado direto em 3.3V.
+// Configuração idêntica ao sketch de bancada já validado no hardware novo
+// (sem flicker, sem estouro) — só com os pinos vindos de config.h.
+// =====================================================================
 class LGFX : public lgfx::LGFX_Device {
-    lgfx::Bus_SPI        _bus;
-    lgfx::Panel_ILI9341  _panel;
-    lgfx::Light_PWM      _light;
-    lgfx::Touch_XPT2046  _touch;
-public:
-    LGFX() {
+    lgfx::Panel_ILI9341 _panel_instance;
+    lgfx::Bus_SPI _bus_instance;
 
-        // Barramento SPI
-        {
-            auto cfg = _bus.config();
-            cfg.spi_host   = SPI2_HOST;
-            cfg.spi_mode   = 0;
+public:
+    LGFX(void) {
+        { // Barramento SPI
+            auto cfg = _bus_instance.config();
+            cfg.spi_host = SPI2_HOST;
+            cfg.spi_mode = 0;
             cfg.freq_write = DisplayCfg::SPI_FREQ_WRITE;
             cfg.freq_read  = DisplayCfg::SPI_FREQ_READ;
             cfg.spi_3wire  = false;
             cfg.use_lock   = true;
             cfg.dma_channel = SPI_DMA_CH_AUTO;
-            // ATENÇÃO: confirme se seu config.h usa "namespace Pins { ... }"
-            // ou constantes globais (TFT_SCK direto, sem prefixo). Ajuste
-            // as 4 linhas abaixo para bater com o que existe de fato.
-            cfg.pin_sclk   = Pins::TFT_SCK;
-            cfg.pin_mosi   = Pins::TFT_MOSI;
-            cfg.pin_miso   = Pins::TFT_MISO;
-            cfg.pin_dc     = Pins::TFT_DC;
-            _bus.config(cfg);
-            _panel.setBus(&_bus);
+            cfg.pin_sclk = Pins::Display::SCK;
+            cfg.pin_mosi = Pins::Display::MOSI;
+            cfg.pin_miso = Pins::Display::MISO;
+            cfg.pin_dc   = Pins::Display::DC;
+            _bus_instance.config(cfg);
+            _panel_instance.setBus(&_bus_instance);
         }
-
-        // Painel TFT
-        {
-            auto cfg = _panel.config();
-            cfg.pin_cs   = Pins::TFT_CS;
-            cfg.pin_rst  = Pins::TFT_RST;
+        { // Painel
+            auto cfg = _panel_instance.config();
+            cfg.pin_cs  = Pins::Display::CS;
+            cfg.pin_rst = Pins::Display::RST;
             cfg.pin_busy = -1;
             cfg.panel_width  = DisplayCfg::WIDTH;
             cfg.panel_height = DisplayCfg::HEIGHT;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
             cfg.offset_rotation = 0;
-            cfg.readable = true;
-            cfg.invert = false;
+            cfg.readable  = false;
+            cfg.invert    = false;
             cfg.rgb_order = false;
             cfg.dlen_16bit = false;
-            cfg.bus_shared = true; // o touch está no mesmo barramento físico
-            _panel.config(cfg);
+            cfg.bus_shared = false;
+            _panel_instance.config(cfg);
         }
-
-        // Backlight
-        {
-            auto cfg = _light.config();
-            cfg.pin_bl = Pins::TFT_BL;
-            cfg.invert = false;
-            cfg.freq   = DisplayCfg::BACKLIGHT_PWM_FREQ;
-            cfg.pwm_channel = DisplayCfg::BACKLIGHT_PWM_CHANNEL;
-            _light.config(cfg);
-            _panel.setLight(&_light);
-        }
-
-        // Touch XPT2046 (mesmo barramento, CS próprio)
-        {
-            auto cfg = _touch.config();
-            cfg.x_min = 0; cfg.x_max = DisplayCfg::WIDTH - 1;
-            cfg.y_min = 0; cfg.y_max = DisplayCfg::HEIGHT - 1;
-            cfg.pin_int = Pins::TOUCH_IRQ;
-            cfg.bus_shared = true;
-            cfg.offset_rotation = 0;
-            cfg.spi_host = SPI2_HOST;
-            cfg.freq = DisplayCfg::SPI_FREQ_TOUCH;
-            cfg.pin_sclk = Pins::TFT_SCK;
-            cfg.pin_mosi = Pins::TFT_MOSI;
-            cfg.pin_miso = Pins::TFT_MISO;
-            cfg.pin_cs = Pins::TOUCH_CS;
-            _touch.config(cfg);
-            _panel.setTouch(&_touch);
-        }
-
-        setPanel(&_panel);
+        setPanel(&_panel_instance);
     }
 };
 
-// -----------------------------------------------------------------------
-// Interface de alto nível usada pelo resto do firmware.
-// main.cpp não deve conhecer LovyanGFX diretamente — só chama estes métodos.
-// -----------------------------------------------------------------------
-
+// =====================================================================
+// ClockData — snapshot de tudo que a tela pode mostrar. DisplayManager
+// compara contra o snapshot anterior campo a campo e só redesenha (e só
+// envia ao painel) o que de fato mudou.
+// =====================================================================
 struct ClockData {
-    String weekdayDate; // ex: "Qui, 1 de Jan"
-    String time;        // ex: "00:00"
-    String alarmTime;   // ex: "08:30"
-    bool alarmEnabled = true;
-    int tempCurrent = 0;
-    int tempLow = 0;
-    int tempHigh = 0;
-    int humidity = 0;
+    String weekdayDate;         // "SEX, 04 SET"
+    String time;                // "13:45"
+    String alarmTime;           // "07:00" — próximo alarme habilitado
+    bool   alarmEnabled = true;
+    int    tempCurrent = 0;
+    int    tempLow     = 0;
+    int    tempHigh    = 0;
+    int    humidity    = 0;
+
+    // Enquanto um alarme está tocando, a linha do alarme mostra o label
+    // dele piscando (blinkOn alterna a cada tick de display) no lugar da
+    // hora do próximo alarme.
+    bool   alarmRinging = false;
+    String ringingLabel;
+    bool   blinkOn = true;
+
+    // Mensagem transiente (ex.: "Toque em 5 minutos!") mostrada estática
+    // (sem piscar) na mesma linha, quando não há alarme tocando agora.
+    String transientMessage;
 
     bool operator!=(const ClockData& o) const {
         return weekdayDate != o.weekdayDate || time != o.time ||
                alarmTime   != o.alarmTime   || alarmEnabled != o.alarmEnabled ||
                tempCurrent != o.tempCurrent || tempLow != o.tempLow ||
-               tempHigh    != o.tempHigh    || humidity != o.humidity;
+               tempHigh    != o.tempHigh    || humidity != o.humidity ||
+               alarmRinging != o.alarmRinging || ringingLabel != o.ringingLabel ||
+               blinkOn != o.blinkOn || transientMessage != o.transientMessage;
     }
 };
 
+// =====================================================================
+// DisplayManager — Etapa 5: redraw dinâmico.
+//
+// Framebuffer inteiro em sprite (PSRAM) + dirty-tracking por campo (só
+// redesenha o que mudou) + um único pushSprite() atômico por update() ->
+// sem tearing, não importa quantos campos mudaram.
+//
+// A causa mais provável da sobreposição/números fantasma do código legado
+// era o retângulo de "limpeza" de cada campo ter uma altura fixa "no
+// olho" (ex.: 90px pro relógio) que podia não cobrir de fato a altura
+// real do glyph pra aquele tamanho de fonte. Aqui a altura de cada
+// retângulo é calculada a partir da métrica real da fonte (8px de base
+// vezes o textSize), então nunca fica pequena demais.
+// =====================================================================
 class DisplayManager {
 public:
-    void begin(LGFX* gfx);
-
-    // Chame sempre que houver dado novo. A tela só é redesenhada
-    // (só os campos que mudaram) e há um único pushSprite() no final.
-    // Sem tearing, independente de quantos campos mudaram.
+    void begin();
     void update(const ClockData& data);
 
-    void setBrightness(uint8_t value); // 0-255, chame só quando o valor MUDAR
-
 private:
-    LGFX*       _gfx = nullptr;
-    LGFX_Sprite _frame; // framebuffer completo, alocado em PSRAM
-    ClockData   _last;
-    bool        _first = true;
+    LGFX _gfx;
+    LGFX_Sprite _frame;
+    ClockData _last;
+    bool _first = true;
+
+    // Mantido por continuidade com o sketch de bancada (ciclo de cores de
+    // bring-up). Roda direto no painel, antes do sprite existir.
+    void runBootColorTest();
 
     void drawDate(const String& text);
     void drawTime(const String& text);
-    void drawAlarm(const String& text, bool enabled);
+    void drawAlarm(const ClockData& data); // precisa do contexto todo (ringing/blink/label)
     void drawWeather(int cur, int lo, int hi, int hum);
 };
 
-// Instância global usada por main.cpp. A DEFINIÇÃO (sem "extern") precisa
-// existir em exatamente um .cpp — confirme que já não existe em outro lugar
-// do seu projeto antes de adicionar, ou você terá erro de símbolo duplicado.
 extern DisplayManager Display;

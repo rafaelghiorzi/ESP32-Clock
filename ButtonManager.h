@@ -3,6 +3,12 @@
 #include <Arduino.h>
 #include "config.h"
 
+// =====================================================================
+// ButtonManager (Etapa 3) — 5 botões, ativo-baixo com pull-up interno,
+// debounce por software (30ms). Lógica portada do legado (já era sólida),
+// só adaptada para os pinos novos em Pins::Buttons.
+// =====================================================================
+
 enum class ButtonId : uint8_t {
     Btn1 = 0,
     Btn2 = 1,
@@ -23,23 +29,11 @@ public:
     bool wasClicked(ButtonId buttonId);
     bool wasReleased(ButtonId buttonId);
 
-    bool button1Pressed() const;
-    bool button2Pressed() const;
-    bool button3Pressed() const;
-    bool button4Pressed() const;
-    bool button5Pressed() const;
-
     bool button1Clicked();
     bool button2Clicked();
     bool button3Clicked();
     bool button4Clicked();
     bool button5Clicked();
-
-    bool button1Released();
-    bool button2Released();
-    bool button3Released();
-    bool button4Released();
-    bool button5Released();
 
 private:
     struct ButtonState {
@@ -57,6 +51,7 @@ private:
     ButtonState states[BUTTON_COUNT];
     bool initialized;
 
-    uint8_t pinFor(ButtonId buttonId) const;
     bool readPressedState(uint8_t pin) const;
 };
+
+extern ButtonManager Buttons;
