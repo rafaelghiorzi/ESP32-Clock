@@ -309,18 +309,32 @@ bool AlarmManager::getMessage(String& out) const {
 void AlarmManager::ringTask(void* param) {
     auto* self = static_cast<AlarmManager*>(param);
 
+    int8_t idx = self->_ringingIndex.load();
+    AlarmSound soundType = AlarmSound::Sample;
+    if (idx >= 0 && idx < (int8_t)MAX_ALARMS) {
+        xSemaphoreTake(self->_mutex, portMAX_DELAY);
+        soundType = self->_alarms[idx].sound;
+        xSemaphoreGive(self->_mutex);
+    }
+
     while (self->_ringing.load()) {
-        Sound.playTone(1500.0f, 150, 0.3f);
-        if (!self->_ringing.load()) break;
-        delay(120);
-        if (!self->_ringing.load()) break;
-        Sound.playTone(1500.0f, 150, 0.3f);
-        if (!self->_ringing.load()) break;
-        delay(120);
-        if (!self->_ringing.load()) break;
-        Sound.playTone(1500.0f, 150, 0.3f);
-        if (!self->_ringing.load()) break;
-        delay(600);
+        if (soundType == AlarmSound::Buzzer) {
+            Sound.playBuzzerTone(1500.0f, 150);
+            if (!self->_ringing.load()) break;
+            delay(120);
+            if (!self->_ringing.load()) break;
+            Sound.playBuzzerTone(1500.0f, 150);
+            if (!self->_ringing.load()) break;
+            delay(120);
+            if (!self->_ringing.load()) break;
+            Sound.playBuzzerTone(1500.0f, 150);
+            if (!self->_ringing.load()) break;
+            delay(600);
+        } else {
+            Sound.playPhantomCigar(); // ~8s
+            if (!self->_ringing.load()) break;
+            delay(300);
+        }
     }
 
     self->_ringTaskRunning.store(false);

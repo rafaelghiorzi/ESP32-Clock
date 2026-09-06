@@ -55,6 +55,8 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
        width:2.4em;text-align:center;font-family:inherit;font-size:.92em;padding:4px 0;}
   .snooze-input:focus{outline:none;border-color:var(--accent);}
   .snooze-label{font-size:.78em;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .sound-select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;
+       padding:4px 6px;font-size:.82em;font-family:inherit;}
   .repeat-toggle{font-size:.78em;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;
        user-select:none;}
   .switch{width:34px;height:20px;border-radius:10px;background:var(--border);position:relative;
@@ -146,6 +148,12 @@ function render(){
       '</div>'+
       '<div class="row between">'+
         '<label class="snooze-label">Soneca <input type="number" class="snooze-input" min="1" max="30" value="'+(a.snooze||5)+'"> min</label>'+
+        '<select class="sound-select">'+
+          '<option value="0"'+((a.sound|0)===0?' selected':'')+'>Som: Amostra</option>'+
+          '<option value="1"'+((a.sound|0)===1?' selected':'')+'>Som: Buzzer</option>'+
+        '</select>'+
+      '</div>'+
+      '<div class="row between">'+
         '<label class="snooze-label"><div class="switch wakelights-switch '+(a.wakeLights?'on':'')+'"></div> Ligar luzes ao disparar</label>'+
       '</div>'+
       '<div class="row between">'+
@@ -175,6 +183,9 @@ function render(){
       alarms[i].repeat=!alarms[i].repeat;
       this.classList.toggle('on');
     });
+    card.querySelector('.sound-select').addEventListener('change',function(e){
+      alarms[i].sound=parseInt(e.target.value,10);
+    });
     card.querySelector('.wakelights-switch').addEventListener('click',function(){
       alarms[i].wakeLights=!alarms[i].wakeLights;
       this.classList.toggle('on');
@@ -200,7 +211,7 @@ async function save(i,btn){
   const a=alarms[i];
   try{
     const r=await fetch('/api/alarms',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label,snooze:a.snooze||5,wakeLights:!!a.wakeLights})});
+      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label,snooze:a.snooze||5,wakeLights:!!a.wakeLights,sound:a.sound|0})});
     const j=await r.json();
     if(j.ok){ toast('Alarme salvo','ok'); }
     else { toast('Erro: '+(j.error||'desconhecido'),'err'); }
@@ -261,6 +272,7 @@ void WebManager::handleGetAlarms() {
         o["label"]   = a.label;
         o["snooze"]  = a.snoozeMinutes;
         o["wakeLights"] = a.wakeLights;
+        o["sound"] = (uint8_t)a.sound;
     }
 
     String out;
@@ -301,6 +313,7 @@ void WebManager::handlePostAlarm() {
     int snooze = doc["snooze"] | 5;
     a.snoozeMinutes = (uint8_t)constrain(snooze, 1, 30);
     a.wakeLights = doc["wakeLights"] | false;
+    a.sound = (doc["sound"] | 0) == 1 ? AlarmSound::Buzzer : AlarmSound::Sample;
 
     // Validação básica — evita gravar um alarme com hora/minuto absurdos
     // vindo de um cliente mal-comportado.

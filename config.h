@@ -33,6 +33,18 @@ namespace Pins {
         constexpr uint8_t LRC  = 6; // WS
         constexpr uint8_t BCLK = 5;
         constexpr uint8_t DIN  = 4;
+
+        // Buzzer piezo PASSIVO (não ativo — precisa de sinal de frequência
+        // variável pra tocar notas diferentes; um buzzer ativo só apita
+        // numa frequência fixa e não serve aqui). Ainda não montado.
+        // Ligação: GPIO -> resistor série de ~100Ω -> um terminal do
+        // buzzer; outro terminal no GND. O resistor protege o GPIO/limita
+        // corrente de pico; não é estritamente obrigatório pra um buzzer
+        // pequeno, mas é barato e recomendado. Não precisa de transistor
+        // pra volumes baixos/médios (a corrente de um piezo é bem baixa);
+        // se quiser mais volume depois, um NPN tipo 2N2222 como driver
+        // simples ajuda.
+        constexpr uint8_t BUZZER = 9;
     }
 
     // ---------- RTC — DS3231 (I2C) — usado a partir da Etapa 4 ----------

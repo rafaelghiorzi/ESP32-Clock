@@ -40,6 +40,17 @@ public:
     // no final, então não interfere no playTone()/beepBoot() depois.
     void playSample(const uint8_t* samples, size_t count, uint32_t sampleRate);
 
+    // Toca a amostra "phantomcigar" embutida (AlarmSample.h) no alto-
+    // falante — inclusão da amostra fica só aqui dentro (SoundManager.cpp),
+    // então o resto do projeto não precisa incluir AlarmSample.h.
+    void playPhantomCigar();
+
+    // Buzzer piezo passivo (GPIO configurável em config.h, Pins::Audio::BUZZER)
+    // — onda quadrada via tone()/noTone(), bloqueante como as outras funções
+    // dessa classe. Ainda funciona (sem som audível de verdade) mesmo sem o
+    // buzzer fisicamente montado, então é seguro chamar antes de instalá-lo.
+    void playBuzzerTone(float freqHz, uint32_t durationMs);
+
 private:
     bool _initialized = false;
 

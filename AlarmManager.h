@@ -46,6 +46,12 @@
 // e fácil de entender > tentar decidir qual "merece" tocar).
 // =====================================================================
 
+// Fonte do som de toque: Sample = amostra gravada (phantomcigar) no
+// alto-falante; Buzzer = bipes sintéticos no buzzer piezo (config.h,
+// Pins::Audio::BUZZER — ainda não montado fisicamente, mas o código já
+// funciona, só não toca nada audível até o buzzer existir).
+enum class AlarmSound : uint8_t { Sample = 0, Buzzer = 1 };
+
 struct Alarm {
     bool    enabled  = false;
     bool    repeat   = true;   // true=recorrente, false=toca uma vez e desliga sozinho
@@ -55,6 +61,7 @@ struct Alarm {
     char    label[16] = "Alarme";
     uint8_t snoozeMinutes = 5; // 1-30, configurável por alarme na web
     bool    wakeLights = false; // se true, dispara ConnManager::requestWakeLights() ao tocar
+    AlarmSound sound = AlarmSound::Sample; // default: o que já funciona sem hardware novo
 };
 
 class AlarmManager {

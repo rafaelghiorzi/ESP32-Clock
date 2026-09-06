@@ -1,6 +1,7 @@
 #include "SoundManager.h"
 #include <driver/i2s.h>
 #include <math.h>
+#include "AlarmSample.h"
 
 SoundManager Sound;
 
@@ -29,8 +30,11 @@ void SoundManager::begin() {
     };
     i2s_set_pin(I2S_PORT, &pins);
 
+    pinMode(Pins::Audio::BUZZER, OUTPUT);
+    digitalWrite(Pins::Audio::BUZZER, LOW);
+
     _initialized = true;
-    Serial.println("[Sound] I2S mono pronto.");
+    Serial.println("[Sound] I2S mono pronto (alto-falante + buzzer).");
 }
 
 void SoundManager::playTone(float freqHz, uint32_t durationMs, float amplitude) {
@@ -123,4 +127,15 @@ void SoundManager::playSample(const uint8_t* samples, size_t count, uint32_t sam
     }
 
     i2s_set_sample_rates(I2S_PORT, AudioCfg::SAMPLE_RATE); // restaura a taxa usada por playTone()/beepBoot()
+}
+
+void SoundManager::playPhantomCigar() {
+    playSample(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
+}
+
+void SoundManager::playBuzzerTone(float freqHz, uint32_t durationMs) {
+    if (!_initialized) return;
+    tone(Pins::Audio::BUZZER, (uint32_t)freqHz);
+    delay(durationMs);
+    noTone(Pins::Audio::BUZZER);
 }

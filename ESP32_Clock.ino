@@ -7,7 +7,6 @@
 #include "TimeManager.h"
 #include "AlarmManager.h"
 #include "WebManager.h"
-#include "AlarmSample.h" // "ding" sintetizado, prova de conceito do playSample() — ver BTN5
 #include <esp_system.h>
 
 // Nome legível pro motivo do último reset (esp_reset_reason()) — ajuda a
@@ -94,10 +93,8 @@ void loop() {
             Sound.playClick();
         }
         if (b5) {
-            // Teste do SoundManager::playSample() (item novo, ver conversa) —
-            // toca a amostra PCM de AlarmSample.h em vez do clique de sempre.
-            Serial.println("[Button] BTN5 -> teste de playSample() (AlarmSample.h)");
-            Sound.playSample(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
+            Serial.println("[Button] BTN5 -> phantomcigar");
+            Sound.playPhantomCigar();
         }
     }
 
