@@ -54,6 +54,7 @@ struct Alarm {
     uint8_t daysMask = 0;      // bit0=domingo .. bit6=sábado (bate com tm_wday)
     char    label[16] = "Alarme";
     uint8_t snoozeMinutes = 5; // 1-30, configurável por alarme na web
+    bool    wakeLights = false; // se true, dispara ConnManager::requestWakeLights() ao tocar
 };
 
 class AlarmManager {

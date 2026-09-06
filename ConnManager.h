@@ -58,6 +58,12 @@ public:
     void requestYeelightToggle(const char* ip);
     void requestLightingScene(uint8_t scene);
 
+    // Preset "nascer do sol simples": luzes amareladas/quentes, brilho
+    // médio, de uma vez só (sem transição gradual). Usado pelo botão
+    // "Ligar luzes" da página de alarmes e, opcionalmente, quando um
+    // alarme com wakeLights=true dispara.
+    void requestWakeLights();
+
 private:
     void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
     static void watchdogTask(void* param);

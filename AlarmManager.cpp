@@ -1,6 +1,7 @@
 #include "AlarmManager.h"
 #include "TimeManager.h"
 #include "SoundManager.h"
+#include "ConnManager.h"
 
 AlarmManager Alarms;
 
@@ -199,6 +200,13 @@ void AlarmManager::startRinging(uint8_t index) {
         Serial.println("[Alarm] outro alarme já está tocando, ignorando esse disparo");
         return;
     }
+
+    bool wakeLights = false;
+    xSemaphoreTake(_mutex, portMAX_DELAY);
+    wakeLights = _alarms[index].wakeLights;
+    xSemaphoreGive(_mutex);
+    if (wakeLights) Conn.requestWakeLights();
+
     _ringingIndex.store((int8_t)index);
     _ringTaskRunning.store(true);
     _ringing.store(true);

@@ -146,8 +146,12 @@ function render(){
       '</div>'+
       '<div class="row between">'+
         '<label class="snooze-label">Soneca <input type="number" class="snooze-input" min="1" max="30" value="'+(a.snooze||5)+'"> min</label>'+
+        '<label class="snooze-label"><div class="switch wakelights-switch '+(a.wakeLights?'on':'')+'"></div> Ligar luzes ao disparar</label>'+
       '</div>'+
-      '<div class="row between"><button class="ghost save-btn">Salvar</button></div>';
+      '<div class="row between">'+
+        '<button class="ghost wakelights-btn" type="button">Ligar luzes</button>'+
+        '<button class="ghost save-btn">Salvar</button>'+
+      '</div>';
 
     card.querySelectorAll('.day').forEach(function(dayEl){
       dayEl.addEventListener('click',function(){
@@ -171,6 +175,19 @@ function render(){
       alarms[i].repeat=!alarms[i].repeat;
       this.classList.toggle('on');
     });
+    card.querySelector('.wakelights-switch').addEventListener('click',function(){
+      alarms[i].wakeLights=!alarms[i].wakeLights;
+      this.classList.toggle('on');
+    });
+    card.querySelector('.wakelights-btn').addEventListener('click',async function(){
+      const btn=this; const original=btn.textContent;
+      btn.textContent='Ligando...'; btn.disabled=true;
+      try{
+        await fetch('/api/wakelights',{method:'POST'});
+        toast('Luzes ligadas','ok');
+      }catch(e){ toast('Falha ao ligar luzes','err'); }
+      btn.textContent=original; btn.disabled=false;
+    });
     card.querySelector('.save-btn').addEventListener('click',function(){ save(i,this); });
 
     el.appendChild(card);
@@ -183,7 +200,7 @@ async function save(i,btn){
   const a=alarms[i];
   try{
     const r=await fetch('/api/alarms',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label,snooze:a.snooze||5})});
+      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label,snooze:a.snooze||5,wakeLights:!!a.wakeLights})});
     const j=await r.json();
     if(j.ok){ toast('Alarme salvo','ok'); }
     else { toast('Erro: '+(j.error||'desconhecido'),'err'); }
@@ -216,6 +233,7 @@ void WebManager::begin() {
     _server.on("/api/alarms", HTTP_POST, [this]() { handlePostAlarm(); });
     _server.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
     _server.on("/api/dismiss", HTTP_POST, [this]() { handleDismiss(); });
+    _server.on("/api/wakelights", HTTP_POST, [this]() { handleWakeLights(); });
     _server.onNotFound([this]() { handleNotFound(); });
 
     _server.begin();
@@ -242,6 +260,7 @@ void WebManager::handleGetAlarms() {
         o["repeat"]  = a.repeat;
         o["label"]   = a.label;
         o["snooze"]  = a.snoozeMinutes;
+        o["wakeLights"] = a.wakeLights;
     }
 
     String out;
@@ -281,6 +300,7 @@ void WebManager::handlePostAlarm() {
 
     int snooze = doc["snooze"] | 5;
     a.snoozeMinutes = (uint8_t)constrain(snooze, 1, 30);
+    a.wakeLights = doc["wakeLights"] | false;
 
     // Validação básica — evita gravar um alarme com hora/minuto absurdos
     // vindo de um cliente mal-comportado.
@@ -314,6 +334,11 @@ void WebManager::handleStatus() {
 
 void WebManager::handleDismiss() {
     Alarms.dismissActive();
+    _server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebManager::handleWakeLights() {
+    Conn.requestWakeLights();
     _server.send(200, "application/json", "{\"ok\":true}");
 }
 

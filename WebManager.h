@@ -27,6 +27,7 @@ private:
     void handlePostAlarm();
     void handleStatus();
     void handleDismiss();
+    void handleWakeLights();
     void handleNotFound();
 
     static void task(void* param);

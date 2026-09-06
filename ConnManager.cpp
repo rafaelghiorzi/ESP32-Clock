@@ -358,6 +358,16 @@ void ConnManager::requestLightingScene(uint8_t scene) {
     }
 }
 
+void ConnManager::requestWakeLights() {
+    Serial.println("[Yeelight] preset 'ligar luzes' (amarelado, brilho medio)");
+    enqueueYeelight(Yeelight::CEILING_IP, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+    enqueueYeelight(Yeelight::CEILING_IP, "{\"id\":1,\"method\":\"set_ct_abx\",\"params\":[3000,\"smooth\",500]}");
+    enqueueYeelight(Yeelight::CEILING_IP, "{\"id\":1,\"method\":\"set_bright\",\"params\":[50,\"smooth\",500]}");
+    enqueueYeelight(Yeelight::BEDSIDE_IP, "{\"id\":1,\"method\":\"set_power\",\"params\":[\"on\",\"smooth\",500]}");
+    enqueueYeelight(Yeelight::BEDSIDE_IP, "{\"id\":1,\"method\":\"set_rgb\",\"params\":[16750848,\"smooth\",500]}");
+    enqueueYeelight(Yeelight::BEDSIDE_IP, "{\"id\":1,\"method\":\"set_bright\",\"params\":[50,\"smooth\",500]}");
+}
+
 void ConnManager::sendYeelightBlocking(const char* ip, const char* json) {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) {
