@@ -305,7 +305,12 @@ void WebManager::onWsEvent(uint8_t clientId, WStype_t type, uint8_t* payload, si
             Serial.printf("[Web] cliente WebSocket #%u conectado\n", clientId);
             // Manda o estado atual na hora, sem esperar o próximo tick de
             // broadcast — cliente que acabou de abrir a página vê algo já.
-            _webSocket.sendTXT(clientId, buildStatusJson());
+            // sendTXT() pede String& (não-const) -> precisa de uma lvalue,
+            // não aceita o retorno temporário de buildStatusJson() direto.
+            {
+                String json = buildStatusJson();
+                _webSocket.sendTXT(clientId, json);
+            }
             break;
         case WStype_DISCONNECTED:
             Serial.printf("[Web] cliente WebSocket #%u desconectado\n", clientId);
@@ -427,7 +432,8 @@ void WebManager::broadcastStatusIfChanged() {
     _lastBroadcastChangeMs = changeMs;
     strncpy(_lastBroadcastTime, timeBuf, sizeof(_lastBroadcastTime) - 1);
 
-    _webSocket.broadcastTXT(buildStatusJson());
+    String json = buildStatusJson();
+    _webSocket.broadcastTXT(json);
 }
 
 void WebManager::handleDismiss() {

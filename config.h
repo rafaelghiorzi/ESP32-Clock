@@ -162,7 +162,7 @@ namespace TimeCfg {
 // =====================================================================
 namespace OtaCfg {
     constexpr const char* HOSTNAME = "esp32clock";
-    constexpr const char* PASSWORD = "troqueEssaSenhaOTA123";
+    constexpr const char* PASSWORD = "18161512";
 }
 
 // =====================================================================
