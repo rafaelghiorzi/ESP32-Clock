@@ -2,6 +2,8 @@
 #include "TimeManager.h"
 #include "SoundManager.h"
 #include "ConnManager.h"
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 AlarmManager Alarms;
 

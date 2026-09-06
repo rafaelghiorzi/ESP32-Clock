@@ -2,6 +2,8 @@
 #include <driver/i2s.h>
 #include <math.h>
 #include "AlarmSample.h"
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 SoundManager Sound;
 

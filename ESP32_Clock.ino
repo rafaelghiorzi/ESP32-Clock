@@ -9,6 +9,7 @@
 #include "WebManager.h"
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+#include "NetLog.h"
 
 // Watchdog só no loop() principal (core 1), de propósito: é a task que
 // faz o trabalho mais variado a cada iteração (botões, push de display,
@@ -50,7 +51,12 @@ constexpr uint32_t HEAP_CHECK_INTERVAL_MS = 60'000;
 constexpr uint32_t HEAP_CRITICAL_BYTES = 20'000; // abaixo disso, reinicia preventivamente
 
 void setup() {
-    Serial.begin(115200);
+    // NetSerial.begin() chama Serial.begin() por baixo dos panos (USB
+    // continua igual) e sobe a task que aceita conexão telnet assim que
+    // o WiFi conectar. Esse .ino não usa "#define Serial NetSerial" (só
+    // os .cpp de serviço usam, ver NetLog.h) — então os poucos logs
+    // daqui pra baixo continuam só na USB, de propósito.
+    NetSerial.begin(115200);
     delay(200); // pequena folga para o monitor serial (USB CDC) anexar
 
     Serial.println();

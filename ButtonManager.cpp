@@ -1,4 +1,6 @@
 #include "ButtonManager.h"
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 ButtonManager Buttons;
 

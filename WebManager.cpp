@@ -6,6 +6,8 @@
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <cstring>
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 WebManager Web;
 

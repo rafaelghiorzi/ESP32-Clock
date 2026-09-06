@@ -1,4 +1,6 @@
 #include "DisplayManager.h"
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 DisplayManager Display;
 

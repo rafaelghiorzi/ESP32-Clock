@@ -118,8 +118,8 @@ namespace WifiCfg {
 namespace ApiCfg {
     constexpr const char* WEATHER_URL =
         "https://api.open-meteo.com/v1/forecast"
-        "?latitude=-15.802841"
-        "&longitude=-47.894250"
+        "?latitude=-15.802871"
+        "&longitude=-47.894299"
         "&current=temperature_2m,relative_humidity_2m"
         "&daily=temperature_2m_min,temperature_2m_max"
         "&timezone=auto"

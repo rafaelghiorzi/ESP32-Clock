@@ -6,6 +6,8 @@
 #include <lwip/inet.h>
 #include <cstring>
 #include <ArduinoOTA.h>
+#include "NetLog.h"
+#define Serial NetSerial // espelha os logs deste arquivo também via telnet — ver NetLog.h
 
 ConnManager Conn;
 
