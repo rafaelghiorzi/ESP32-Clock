@@ -8,6 +8,25 @@
 #include "AlarmManager.h"
 #include "WebManager.h"
 #include "AlarmSample.h" // "ding" sintetizado, prova de conceito do playSample() — ver BTN5
+#include <esp_system.h>
+
+// Nome legível pro motivo do último reset (esp_reset_reason()) — ajuda a
+// diagnosticar problemas de campo (brownout, watchdog, painc, etc.) sem
+// precisar reproduzir o problema com o monitor serial já aberto.
+static const char* resetReasonName(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON:   return "power-on (ligou na energia)";
+        case ESP_RST_EXT:       return "reset externo (pino RESET/EN)";
+        case ESP_RST_SW:        return "reset por software (ESP.restart())";
+        case ESP_RST_PANIC:     return "panic (exceção/crash)";
+        case ESP_RST_INT_WDT:   return "watchdog de interrupção";
+        case ESP_RST_TASK_WDT:  return "task watchdog (uma task travou)";
+        case ESP_RST_WDT:       return "outro watchdog";
+        case ESP_RST_BROWNOUT:  return "brownout (queda de tensão)";
+        case ESP_RST_SDIO:      return "reset via SDIO";
+        default:                return "desconhecido";
+    }
+}
 
 static uint8_t currentScene = 0;
 static uint32_t lastWeatherLogMs = 0;
@@ -21,6 +40,7 @@ void setup() {
 
     Serial.println();
     Serial.println("=== ESP32_Clock — boot (Etapas 1-5 + alarmes) ===");
+    Serial.printf("[System] motivo do reset anterior: %s\n", resetReasonName(esp_reset_reason()));
 
     Display.begin();   // sprite + ciclo de cores de bring-up, sem conteúdo dinâmico ainda
     Sound.begin();
