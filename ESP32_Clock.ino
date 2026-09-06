@@ -8,6 +8,19 @@
 #include "AlarmManager.h"
 #include "WebManager.h"
 #include <esp_system.h>
+#include <esp_task_wdt.h>
+
+// Watchdog só no loop() principal (core 1), de propósito: é a task que
+// faz o trabalho mais variado a cada iteração (botões, push de display,
+// sons síncronos) e a mais provável de travar de verdade. As tasks de
+// rede (ConnManager/TimeManager/WebManager) ficam a maior parte do tempo
+// BLOQUEADAS esperando evento/fila por design — inscrevê-las no watchdog
+// forçaria elas a acordar só pra "alimentar" o timer, jogando fora
+// exatamente a otimização de CPU ociosa que já foi feita nelas.
+// 20s de margem: o BTN5 (phantomcigar, ~8s) e chamadas de som/soneca do
+// próprio loop() são as coisas mais lentas que legitimamente bloqueiam
+// essa task, então o timeout precisa folgar bem acima disso.
+constexpr uint32_t WDT_TIMEOUT_MS = 20'000;
 
 // Nome legível pro motivo do último reset (esp_reset_reason()) — ajuda a
 // diagnosticar problemas de campo (brownout, watchdog, painc, etc.) sem
@@ -50,9 +63,25 @@ void setup() {
     Alarms.begin();    // carrega os 5 slots de alarme da NVS
     Web.begin();       // servidor HTTP pra configurar os alarmes pelo celular/PC
     Buttons.begin();
+
+    esp_task_wdt_config_t wdtConfig = {
+        .timeout_ms = WDT_TIMEOUT_MS,
+        .idle_core_mask = 0,   // não monitora as idle tasks do FreeRTOS
+        .trigger_panic = true  // reinicia o ESP32 se disparar
+    };
+    // O core do arduino-esp32 às vezes já inicializa o TWDT sozinho com a
+    // config padrão do sdkconfig — se já estiver rodando, reconfigura em
+    // vez de tentar inicializar de novo (que falharia).
+    if (esp_task_wdt_init(&wdtConfig) == ESP_ERR_INVALID_STATE) {
+        esp_task_wdt_reconfigure(&wdtConfig);
+    }
+    esp_task_wdt_add(NULL); // inscreve a task atual (loopTask)
+    Serial.printf("[System] task watchdog ativo no loop principal (timeout %lums)\n", WDT_TIMEOUT_MS);
 }
 
 void loop() {
+    esp_task_wdt_reset();
+
     Buttons.update();
 
     bool b1 = Buttons.button1Clicked();
