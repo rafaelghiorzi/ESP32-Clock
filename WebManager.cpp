@@ -4,6 +4,7 @@
 #include "ConnManager.h"
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+#include <cstring>
 
 WebManager Web;
 
@@ -106,15 +107,27 @@ async function load(){
     render();
   }catch(e){ toast('Falha ao carregar alarmes','err'); }
 }
+function applyStatus(s){
+  document.getElementById('status').textContent='Relogio: '+s.time+' - '+s.date;
+  const banner=document.getElementById('ringBanner');
+  banner.style.display=s.ringing?'flex':'none';
+  if(s.ringing) document.getElementById('ringLabel').textContent=s.ringingLabel||'Tocando';
+}
 async function loadStatus(){
+  // Só usado pro 1o carregamento da página, antes do WebSocket conectar.
+  // Depois disso, o servidor empurra sozinho quando algo muda.
   try{
     const r=await fetch('/api/status');
-    const s=await r.json();
-    document.getElementById('status').textContent='Relogio: '+s.time+' - '+s.date;
-    const banner=document.getElementById('ringBanner');
-    banner.style.display=s.ringing?'flex':'none';
-    if(s.ringing) document.getElementById('ringLabel').textContent=s.ringingLabel||'Tocando';
+    applyStatus(await r.json());
   }catch(e){}
+}
+let ws;
+function connectWs(){
+  ws=new WebSocket('ws://'+location.hostname+':81/');
+  ws.onmessage=function(ev){
+    try{ applyStatus(JSON.parse(ev.data)); }catch(e){}
+  };
+  ws.onclose=function(){ setTimeout(connectWs,2000); }; // reconecta sozinho se cair
 }
 function clampTime(i){
   alarms[i].hour=Math.max(0,Math.min(23,alarms[i].hour|0));
@@ -232,7 +245,7 @@ async function dismiss(){
 }
 load();
 loadStatus();
-setInterval(loadStatus,4000);
+connectWs();
 </script>
 </body>
 </html>
@@ -250,7 +263,29 @@ void WebManager::begin() {
     _server.begin();
     Serial.println("[Web] servidor HTTP iniciado na porta 80");
 
+    _webSocket.onEvent([this](uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
+        onWsEvent(clientId, type, payload, length);
+    });
+    _webSocket.begin();
+    Serial.println("[Web] WebSocket iniciado na porta 81");
+
     xTaskCreatePinnedToCore(task, "web_server", 6144, this, 1, &_taskHandle, 0);
+}
+
+void WebManager::onWsEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length) {
+    switch (type) {
+        case WStype_CONNECTED:
+            Serial.printf("[Web] cliente WebSocket #%u conectado\n", clientId);
+            // Manda o estado atual na hora, sem esperar o próximo tick de
+            // broadcast — cliente que acabou de abrir a página vê algo já.
+            _webSocket.sendTXT(clientId, buildStatusJson());
+            break;
+        case WStype_DISCONNECTED:
+            Serial.printf("[Web] cliente WebSocket #%u desconectado\n", clientId);
+            break;
+        default:
+            break; // não esperamos nada do cliente, é só canal de push
+    }
 }
 
 void WebManager::handleRoot() {
@@ -326,7 +361,7 @@ void WebManager::handlePostAlarm() {
     _server.send(200, "application/json", "{\"ok\":true}");
 }
 
-void WebManager::handleStatus() {
+String WebManager::buildStatusJson() const {
     char timeBuf[6] = "--:--";
     char dateBuf[24] = "";
     if (RtcClock.isTimeValid()) {
@@ -342,7 +377,30 @@ void WebManager::handleStatus() {
 
     String out;
     serializeJson(doc, out);
-    _server.send(200, "application/json", out);
+    return out;
+}
+
+void WebManager::handleStatus() {
+    _server.send(200, "application/json", buildStatusJson());
+}
+
+void WebManager::broadcastStatusIfChanged() {
+    bool ringing = Alarms.isRinging();
+    uint32_t changeMs = max(Conn.getLastWeatherUpdateMs(), Alarms.getLastChangeMs());
+
+    char timeBuf[6] = "--:--";
+    if (RtcClock.isTimeValid()) RtcClock.getDisplayTimeString(timeBuf, sizeof(timeBuf));
+
+    bool changed = (ringing != _lastBroadcastRinging) ||
+                   (changeMs != _lastBroadcastChangeMs) ||
+                   (strcmp(timeBuf, _lastBroadcastTime) != 0);
+    if (!changed) return;
+
+    _lastBroadcastRinging = ringing;
+    _lastBroadcastChangeMs = changeMs;
+    strncpy(_lastBroadcastTime, timeBuf, sizeof(_lastBroadcastTime) - 1);
+
+    _webSocket.broadcastTXT(buildStatusJson());
 }
 
 void WebManager::handleDismiss() {
@@ -362,6 +420,8 @@ void WebManager::handleNotFound() {
 void WebManager::task(void* param) {
     auto* self = static_cast<WebManager*>(param);
     bool mdnsStarted = false;
+    uint32_t lastBroadcastCheckMs = 0;
+    constexpr uint32_t BROADCAST_CHECK_INTERVAL_MS = 500;
 
     for (;;) {
         if (!mdnsStarted && Conn.isConnected()) {
@@ -370,7 +430,16 @@ void WebManager::task(void* param) {
                 mdnsStarted = true;
             }
         }
+
         self->_server.handleClient();
+        self->_webSocket.loop();
+
+        uint32_t now = millis();
+        if (now - lastBroadcastCheckMs >= BROADCAST_CHECK_INTERVAL_MS) {
+            lastBroadcastCheckMs = now;
+            self->broadcastStatusIfChanged();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
