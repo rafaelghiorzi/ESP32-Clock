@@ -95,10 +95,31 @@ void AlarmManager::update() {
             }
             xSemaphoreGive(_mutex);
 
-            if (toRing >= 0 && !_ringing.load() && !_snoozing) {
-                _snoozeUsed = false;
-                _ringStartMs = millis();
-                startRinging((uint8_t)toRing);
+            if (toRing >= 0) {
+                bool cycleActive = _ringing.load() || _snoozing;
+                if (!cycleActive) {
+                    _snoozeUsed = false;
+                    _ringStartMs = millis();
+                    startRinging((uint8_t)toRing);
+                } else {
+                    // Conflito: outro alarme já está tocando ou em soneca
+                    // esperando pra tocar de novo, e esse aqui bateu no
+                    // mesmo instante (ex.: dois alarmes 5min separados, um
+                    // deles em soneca justo na hora do outro disparar). Em
+                    // vez de um "vencer" silenciosamente e o outro sumir,
+                    // os dois se cancelam — nenhum toca.
+                    int8_t otherIndex = _ringingIndex.load();
+                    Serial.printf("[Alarm] conflito: slot %u coincidiu com o ciclo ativo do slot %d -> ambos cancelados\n",
+                                  toRing, otherIndex);
+
+                    if (_ringing.load()) {
+                        _ringing.store(false);
+                        waitForRingTaskToStop();
+                    }
+                    _snoozing = false;
+                    _ringingIndex.store(-1);
+                    setMessage("Alarmes coincidiram, cancelados", AlarmCfg::SNOOZE_MESSAGE_MS);
+                }
             }
         }
     }

@@ -37,10 +37,13 @@
 // e escrito pelo WebManager (rodando numa task no core 0) -> protegido
 // por mutex, igual ao padrão já usado pra clima em ConnManager.
 //
-// Limitação conhecida: se dois alarmes caírem no mesmo minuto exato, só
-// o primeiro encontrado toca (evita sobrepor dois padrões de som). Caso
-// de uso raríssimo pra um relógio de mesa; não vale a complexidade de
-// enfileirar toques.
+// Conflito entre alarmes: só um alarme pode estar tocando (ou em soneca
+// esperando pra tocar de novo) por vez. Se um segundo alarme tenta disparar
+// enquanto o primeiro está ativo (tocando OU em soneca) — ex.: dois
+// alarmes 5min separados, um deles em soneca bem na hora do outro disparar
+// — os dois se cancelam: nenhum toca, e uma mensagem aparece na tela. Não
+// há fila/prioridade entre eles, de propósito (comportamento determinístico
+// e fácil de entender > tentar decidir qual "merece" tocar).
 // =====================================================================
 
 struct Alarm {
