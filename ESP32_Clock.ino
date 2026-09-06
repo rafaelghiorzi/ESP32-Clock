@@ -126,15 +126,16 @@ void loop() {
 
         if (RtcClock.isTimeValid()) {
             ClockData data;
-            data.weekdayDate = RtcClock.getDisplayDateString();
-            data.time        = RtcClock.getDisplayTimeString();
+            RtcClock.getDisplayDateString(data.weekdayDate, sizeof(data.weekdayDate));
+            RtcClock.getDisplayTimeString(data.time, sizeof(data.time));
 
             data.alarmRinging = Alarms.isRinging();
             if (data.alarmRinging) {
                 // Enquanto toca: mostra o nome do alarme piscando no lugar
                 // da hora (fase liga/desliga amarrada ao segundo real do
                 // relógio, então o pisca-pisca fica com cadência estável).
-                data.ringingLabel = Alarms.getRingingLabel();
+                String label = Alarms.getRingingLabel();
+                strncpy(data.ringingLabel, label.c_str(), sizeof(data.ringingLabel) - 1);
                 data.blinkOn = (RtcClock.second() % 2 == 0);
             } else {
                 String msg;
@@ -142,16 +143,14 @@ void loop() {
                     // Mensagem transiente (ex.: "Toque em 5 minutos!" logo
                     // após o BTN5 ativar a soneca) tem prioridade sobre o
                     // próximo alarme por alguns segundos.
-                    data.transientMessage = msg;
+                    strncpy(data.transientMessage, msg.c_str(), sizeof(data.transientMessage) - 1);
                 } else {
                     AlarmManager::NextAlarmInfo next = Alarms.getNextAlarm();
                     if (next.any) {
-                        char buf[6];
-                        snprintf(buf, sizeof(buf), "%02d:%02d", next.hour, next.minute);
-                        data.alarmTime = buf;
+                        snprintf(data.alarmTime, sizeof(data.alarmTime), "%02d:%02d", next.hour, next.minute);
                         data.alarmEnabled = true;
                     } else {
-                        data.alarmTime = "--:--";
+                        strncpy(data.alarmTime, "--:--", sizeof(data.alarmTime) - 1);
                         data.alarmEnabled = false;
                     }
                 }
@@ -168,17 +167,15 @@ void loop() {
             // Linha de status no rodapé: aviso de bateria do RTC tem
             // prioridade e sobrepõe o indicador de sincronização normal.
             if (RtcClock.isBatteryLow()) {
-                data.statusLine = "Bateria do RTC fraca - troque a CR2032";
+                strncpy(data.statusLine, "Bateria do RTC fraca - troque a CR2032", sizeof(data.statusLine) - 1);
                 data.statusIsWarning = true;
             } else {
                 uint32_t lastSync = max(Conn.getLastWeatherUpdateMs(), Alarms.getLastChangeMs());
                 if (lastSync > 0) {
                     uint32_t elapsedMin = (millis() - lastSync) / 60000UL;
-                    char buf[24];
-                    if (elapsedMin < 1) snprintf(buf, sizeof(buf), "Sincronizado agora");
-                    else if (elapsedMin < 60) snprintf(buf, sizeof(buf), "Sincronizado ha %lumin", (unsigned long)elapsedMin);
-                    else snprintf(buf, sizeof(buf), "Sincronizado ha %luh", (unsigned long)(elapsedMin / 60));
-                    data.statusLine = buf;
+                    if (elapsedMin < 1) snprintf(data.statusLine, sizeof(data.statusLine), "Sincronizado agora");
+                    else if (elapsedMin < 60) snprintf(data.statusLine, sizeof(data.statusLine), "Sincronizado ha %lumin", (unsigned long)elapsedMin);
+                    else snprintf(data.statusLine, sizeof(data.statusLine), "Sincronizado ha %luh", (unsigned long)(elapsedMin / 60));
                 }
                 data.statusIsWarning = false;
             }

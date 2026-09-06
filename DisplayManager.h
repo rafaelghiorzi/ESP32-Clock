@@ -1,6 +1,7 @@
 #pragma once
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
+#include <cstring>
 #include "config.h"
 
 // =====================================================================
@@ -56,42 +57,49 @@ public:
 // compara contra o snapshot anterior campo a campo e só redesenha (e só
 // envia ao painel) o que de fato mudou.
 // =====================================================================
+// Campos de texto como buffers fixos, não String: essa struct é montada
+// e comparada 1x/segundo pra sempre, então evitar alocação/liberação de
+// heap aqui é o que mais importa pra não fragmentar a memória ao longo de
+// dias/semanas rodando sem reboot (String aloca no heap a cada atribuição
+// de conteúdo novo). Os poucos lugares que ainda usam String (rótulo de
+// alarme tocando, mensagens da web) só rodam em eventos raros, não todo
+// tick — copiados pra cá via strncpy.
 struct ClockData {
-    String weekdayDate;         // "SEX, 04 SET"
-    String time;                // "13:45"
-    String alarmTime;           // "07:00" — próximo alarme habilitado
-    bool   alarmEnabled = true;
-    int    tempCurrent = 0;
-    int    tempLow     = 0;
-    int    tempHigh    = 0;
-    int    humidity    = 0;
+    char weekdayDate[16] = "";   // "SEX, 04 SET"
+    char time[6] = "";           // "13:45"
+    char alarmTime[6] = "";      // "07:00" — próximo alarme habilitado
+    bool alarmEnabled = true;
+    int  tempCurrent = 0;
+    int  tempLow     = 0;
+    int  tempHigh    = 0;
+    int  humidity    = 0;
 
     // Enquanto um alarme está tocando, a linha do alarme mostra o label
     // dele piscando (blinkOn alterna a cada tick de display) no lugar da
     // hora do próximo alarme.
-    bool   alarmRinging = false;
-    String ringingLabel;
-    bool   blinkOn = true;
+    bool alarmRinging = false;
+    char ringingLabel[16] = "";
+    bool blinkOn = true;
 
     // Mensagem transiente (ex.: "Toque em 5 minutos!") mostrada estática
     // (sem piscar) na mesma linha, quando não há alarme tocando agora.
-    String transientMessage;
+    char transientMessage[32] = "";
 
     // Linha de status no rodapé da tela: "Sincronizado há Xmin" (cinza
     // claro) normalmente, ou um aviso (laranja) que a SOBREPÕE quando
     // statusIsWarning=true (ex.: bateria do RTC fraca) — decidido no
     // ESP32_Clock.ino, não aqui.
-    String statusLine;
-    bool   statusIsWarning = false;
+    char statusLine[40] = "";
+    bool statusIsWarning = false;
 
     bool operator!=(const ClockData& o) const {
-        return weekdayDate != o.weekdayDate || time != o.time ||
-               alarmTime   != o.alarmTime   || alarmEnabled != o.alarmEnabled ||
+        return strcmp(weekdayDate, o.weekdayDate) != 0 || strcmp(time, o.time) != 0 ||
+               strcmp(alarmTime, o.alarmTime) != 0 || alarmEnabled != o.alarmEnabled ||
                tempCurrent != o.tempCurrent || tempLow != o.tempLow ||
                tempHigh    != o.tempHigh    || humidity != o.humidity ||
-               alarmRinging != o.alarmRinging || ringingLabel != o.ringingLabel ||
-               blinkOn != o.blinkOn || transientMessage != o.transientMessage ||
-               statusLine != o.statusLine || statusIsWarning != o.statusIsWarning;
+               alarmRinging != o.alarmRinging || strcmp(ringingLabel, o.ringingLabel) != 0 ||
+               blinkOn != o.blinkOn || strcmp(transientMessage, o.transientMessage) != 0 ||
+               strcmp(statusLine, o.statusLine) != 0 || statusIsWarning != o.statusIsWarning;
     }
 };
 
@@ -124,8 +132,8 @@ private:
     // bring-up). Roda direto no painel, antes do sprite existir.
     void runBootColorTest();
 
-    void drawDate(const String& text);
-    void drawTime(const String& text);
+    void drawDate(const char* text);
+    void drawTime(const char* text);
     void drawAlarm(const ClockData& data); // precisa do contexto todo (ringing/blink/label)
     void drawWeather(int cur, int lo, int hi, int hum);
     void drawStatus(const ClockData& data); // linha de status no rodapé (sync/aviso)

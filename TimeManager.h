@@ -37,8 +37,10 @@ public:
     // fraca ou ausente.
     bool isBatteryLow() const;
 
-    String getDisplayTimeString(); // "13:45"
-    String getDisplayDateString(); // "SEX, 04 SET"
+    // Escrevem direto no buffer do chamador (sem alocar String) — chamadas
+    // 1x/segundo pra sempre, então evitar heap aqui importa de verdade.
+    void getDisplayTimeString(char* buf, size_t bufSize) const; // "13:45"
+    void getDisplayDateString(char* buf, size_t bufSize) const; // "SEX, 04 SET"
     uint8_t second() const;        // segundo atual (0-59) — usado pra piscar coisas na tela
 
 private:

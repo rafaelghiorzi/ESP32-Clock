@@ -93,14 +93,11 @@ bool TimeManager::isBatteryLow() const {
     return _batteryLow;
 }
 
-String TimeManager::getDisplayTimeString() {
+void TimeManager::getDisplayTimeString(char* buf, size_t bufSize) const {
     time_t now = time(nullptr);
     struct tm t;
     localtime_r(&now, &t);
-
-    char buf[6];
-    snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
-    return String(buf);
+    snprintf(buf, bufSize, "%02d:%02d", t.tm_hour, t.tm_min);
 }
 
 uint8_t TimeManager::second() const {
@@ -110,7 +107,7 @@ uint8_t TimeManager::second() const {
     return (uint8_t)t.tm_sec;
 }
 
-String TimeManager::getDisplayDateString() {
+void TimeManager::getDisplayDateString(char* buf, size_t bufSize) const {
     time_t now = time(nullptr);
     struct tm t;
     localtime_r(&now, &t);
@@ -119,7 +116,5 @@ String TimeManager::getDisplayDateString() {
     static const char* months[] = { "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
                                      "JUL", "AGO", "SET", "OUT", "NOV", "DEZ" };
 
-    char buf[24];
-    snprintf(buf, sizeof(buf), "%s, %02d %s", days[t.tm_wday], t.tm_mday, months[t.tm_mon]);
-    return String(buf);
+    snprintf(buf, bufSize, "%s, %02d %s", days[t.tm_wday], t.tm_mday, months[t.tm_mon]);
 }

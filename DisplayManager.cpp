@@ -123,15 +123,15 @@ void DisplayManager::runBootColorTest() {
 void DisplayManager::update(const ClockData& data) {
     if (!_first && !(data != _last)) return; // nada mudou, não faz nada (nem push)
 
-    if (_first || data.weekdayDate != _last.weekdayDate)
+    if (_first || strcmp(data.weekdayDate, _last.weekdayDate) != 0)
         drawDate(data.weekdayDate);
 
-    if (_first || data.time != _last.time)
+    if (_first || strcmp(data.time, _last.time) != 0)
         drawTime(data.time);
 
-    bool alarmChanged = data.alarmTime != _last.alarmTime || data.alarmEnabled != _last.alarmEnabled ||
-                        data.alarmRinging != _last.alarmRinging || data.ringingLabel != _last.ringingLabel ||
-                        data.blinkOn != _last.blinkOn || data.transientMessage != _last.transientMessage;
+    bool alarmChanged = strcmp(data.alarmTime, _last.alarmTime) != 0 || data.alarmEnabled != _last.alarmEnabled ||
+                        data.alarmRinging != _last.alarmRinging || strcmp(data.ringingLabel, _last.ringingLabel) != 0 ||
+                        data.blinkOn != _last.blinkOn || strcmp(data.transientMessage, _last.transientMessage) != 0;
     if (_first || alarmChanged)
         drawAlarm(data);
 
@@ -139,7 +139,7 @@ void DisplayManager::update(const ClockData& data) {
                   data.tempHigh != _last.tempHigh || data.humidity != _last.humidity)
         drawWeather(data.tempCurrent, data.tempLow, data.tempHigh, data.humidity);
 
-    if (_first || data.statusLine != _last.statusLine || data.statusIsWarning != _last.statusIsWarning)
+    if (_first || strcmp(data.statusLine, _last.statusLine) != 0 || data.statusIsWarning != _last.statusIsWarning)
         drawStatus(data);
 
     // Único push físico pro painel, atômico -> zero tearing, não importa
@@ -152,7 +152,7 @@ void DisplayManager::update(const ClockData& data) {
     _first = false;
 }
 
-void DisplayManager::drawDate(const String& text) {
+void DisplayManager::drawDate(const char* text) {
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::DATE_SIZE);
     _frame.fillRect(0, Layout::DATE_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
@@ -163,7 +163,7 @@ void DisplayManager::drawDate(const String& text) {
     _frame.drawString(text, w / 2, Layout::DATE_Y);
 }
 
-void DisplayManager::drawTime(const String& text) {
+void DisplayManager::drawTime(const char* text) {
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::TIME_SIZE);
     _frame.fillRect(0, Layout::TIME_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
@@ -190,7 +190,7 @@ void DisplayManager::drawAlarm(const ClockData& data) {
         return;
     }
 
-    if (data.transientMessage.length() > 0) {
+    if (data.transientMessage[0] != '\0') {
         _frame.setTextDatum(top_center);
         _frame.setTextColor(TFT_ORANGE);
         _frame.setTextSize(Layout::ALARM_SIZE);
@@ -284,7 +284,7 @@ void DisplayManager::drawStatus(const ClockData& data) {
 
     _frame.fillRect(0, clearY, w, clearH, TFT_BLACK);
 
-    if (data.statusLine.length() == 0) return; // nada a mostrar, só limpa
+    if (data.statusLine[0] == '\0') return; // nada a mostrar, só limpa
 
     _frame.setTextDatum(top_center);
     _frame.setTextColor(data.statusIsWarning ? TFT_ORANGE : TFT_LIGHTGREY);

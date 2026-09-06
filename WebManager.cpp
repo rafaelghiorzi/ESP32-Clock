@@ -280,9 +280,16 @@ void WebManager::handlePostAlarm() {
 }
 
 void WebManager::handleStatus() {
+    char timeBuf[6] = "--:--";
+    char dateBuf[24] = "";
+    if (RtcClock.isTimeValid()) {
+        RtcClock.getDisplayTimeString(timeBuf, sizeof(timeBuf));
+        RtcClock.getDisplayDateString(dateBuf, sizeof(dateBuf));
+    }
+
     DynamicJsonDocument doc(256);
-    doc["time"]    = RtcClock.isTimeValid() ? RtcClock.getDisplayTimeString() : "--:--";
-    doc["date"]    = RtcClock.isTimeValid() ? RtcClock.getDisplayDateString() : "";
+    doc["time"]    = timeBuf;
+    doc["date"]    = dateBuf;
     doc["ringing"] = Alarms.isRinging();
     if (Alarms.isRinging()) doc["ringingLabel"] = Alarms.getRingingLabel();
 
