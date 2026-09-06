@@ -57,6 +57,7 @@ private:
     static void watchdogTask(void* param);
     static void weatherTask(void* param);
     static void yeelightTask(void* param);
+    static void otaTask(void* param); // ArduinoOTA.handle(), só começa a de fato fazer algo após 1a conexão
 
     // bloqueante (HTTP), só chamado dentro de weatherTask. Retorna false em
     // caso de erro de rede/parse -> weatherTask usa isso pra decidir entre
@@ -91,6 +92,7 @@ private:
     TaskHandle_t _watchdogHandle  = nullptr;
     TaskHandle_t _weatherHandle   = nullptr;
     TaskHandle_t _yeelightHandle  = nullptr;
+    TaskHandle_t _otaHandle       = nullptr;
 
     static constexpr uint32_t BACKOFF_BASE_MS = 2000;
     static constexpr uint32_t BACKOFF_MAX_MS  = 60000;

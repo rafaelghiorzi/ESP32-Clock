@@ -5,6 +5,7 @@
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 #include <cstring>
+#include <ArduinoOTA.h>
 
 ConnManager Conn;
 
@@ -48,6 +49,56 @@ void ConnManager::begin() {
     xTaskCreatePinnedToCore(watchdogTask, "wifi_watchdog", 4096, this, 2, &_watchdogHandle, 0);
     xTaskCreatePinnedToCore(weatherTask, "weather_fetch", 8192, this, 1, &_weatherHandle, 0);
     xTaskCreatePinnedToCore(yeelightTask, "yeelight_send", 4096, this, 1, &_yeelightHandle, 0);
+    xTaskCreatePinnedToCore(otaTask, "ota", 4096, this, 1, &_otaHandle, 0);
+}
+
+void ConnManager::otaTask(void* param) {
+    auto* self = static_cast<ConnManager*>(param);
+    bool otaStarted = false;
+
+    for (;;) {
+        // Só inicia o ArduinoOTA (que registra serviço mDNS e abre a porta
+        // de upload) depois da 1a conexão — antes disso não tem rede pra
+        // anunciar nada.
+        if (!otaStarted && self->_connected.load()) {
+            ArduinoOTA.setHostname(OtaCfg::HOSTNAME);
+            ArduinoOTA.setPassword(OtaCfg::PASSWORD);
+
+            ArduinoOTA.onStart([]() {
+                const char* type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+                Serial.printf("[OTA] iniciando atualizacao (%s)...\n", type);
+            });
+            ArduinoOTA.onEnd([]() {
+                Serial.println("[OTA] atualizacao concluida, reiniciando...");
+            });
+            ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+                static uint8_t lastPct = 255;
+                uint8_t pct = total ? (uint8_t)((progress * 100) / total) : 0;
+                if (pct != lastPct) {
+                    Serial.printf("[OTA] progresso: %u%%\n", pct);
+                    lastPct = pct;
+                }
+            });
+            ArduinoOTA.onError([](ota_error_t error) {
+                Serial.printf("[OTA] erro [%u]: ", error);
+                switch (error) {
+                    case OTA_AUTH_ERROR:    Serial.println("falha de autenticacao"); break;
+                    case OTA_BEGIN_ERROR:   Serial.println("falha ao iniciar"); break;
+                    case OTA_CONNECT_ERROR: Serial.println("falha de conexao"); break;
+                    case OTA_RECEIVE_ERROR: Serial.println("falha ao receber"); break;
+                    case OTA_END_ERROR:     Serial.println("falha ao finalizar"); break;
+                    default:                Serial.println("desconhecido"); break;
+                }
+            });
+
+            ArduinoOTA.begin();
+            Serial.printf("[OTA] pronto — upload via WiFi em \"%s.local\" (Arduino IDE: Tools > Port)\n", OtaCfg::HOSTNAME);
+            otaStarted = true;
+        }
+
+        if (otaStarted) ArduinoOTA.handle();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
 }
 
 bool ConnManager::isConnected() const {

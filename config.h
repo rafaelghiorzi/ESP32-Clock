@@ -145,6 +145,15 @@ namespace TimeCfg {
 }
 
 // =====================================================================
+// OTA — upload de firmware por WiFi (ArduinoOTA), sem precisar de cabo.
+// TROQUE ESSA SENHA — fica em texto puro aqui, igual às credenciais WiFi.
+// =====================================================================
+namespace OtaCfg {
+    constexpr const char* HOSTNAME = "esp32clock";
+    constexpr const char* PASSWORD = "troqueEssaSenhaOTA123";
+}
+
+// =====================================================================
 // ALARME — duração do toque, soneca única, mensagem na tela.
 // =====================================================================
 namespace AlarmCfg {
