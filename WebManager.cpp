@@ -51,6 +51,10 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
   .label-input{background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);
        padding:4px 0;font-size:.92em;font-family:inherit;flex:1;min-width:80px;}
   .label-input:focus{outline:none;border-color:var(--accent);}
+  .snooze-input{background:transparent;color:var(--text);border:none;border-bottom:1px solid var(--border);
+       width:2.4em;text-align:center;font-family:inherit;font-size:.92em;padding:4px 0;}
+  .snooze-input:focus{outline:none;border-color:var(--accent);}
+  .snooze-label{font-size:.78em;color:var(--muted);display:flex;align-items:center;gap:6px;}
   .repeat-toggle{font-size:.78em;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;
        user-select:none;}
   .switch{width:34px;height:20px;border-radius:10px;background:var(--border);position:relative;
@@ -140,6 +144,9 @@ function render(){
         '<div class="days">'+daysHtml+'</div>'+
         '<div class="repeat-toggle"><span>Repete</span><div class="switch repeat-switch '+(a.repeat?'on':'')+'"></div></div>'+
       '</div>'+
+      '<div class="row between">'+
+        '<label class="snooze-label">Soneca <input type="number" class="snooze-input" min="1" max="30" value="'+(a.snooze||5)+'"> min</label>'+
+      '</div>'+
       '<div class="row between"><button class="ghost save-btn">Salvar</button></div>';
 
     card.querySelectorAll('.day').forEach(function(dayEl){
@@ -152,6 +159,9 @@ function render(){
     card.querySelector('.hh').addEventListener('change',function(e){ alarms[i].hour=parseInt(e.target.value,10)||0; clampTime(i); });
     card.querySelector('.mm').addEventListener('change',function(e){ alarms[i].minute=parseInt(e.target.value,10)||0; clampTime(i); });
     card.querySelector('.label-input').addEventListener('change',function(e){ alarms[i].label=e.target.value; });
+    card.querySelector('.snooze-input').addEventListener('change',function(e){
+      alarms[i].snooze=Math.max(1,Math.min(30,parseInt(e.target.value,10)||5));
+    });
     card.querySelector('.enabled-switch').addEventListener('click',function(){
       alarms[i].enabled=!alarms[i].enabled;
       this.classList.toggle('on');
@@ -173,7 +183,7 @@ async function save(i,btn){
   const a=alarms[i];
   try{
     const r=await fetch('/api/alarms',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label})});
+      body:JSON.stringify({index:i,hour:a.hour,minute:a.minute,days:a.days,repeat:a.repeat,enabled:a.enabled,label:a.label,snooze:a.snooze||5})});
     const j=await r.json();
     if(j.ok){ toast('Alarme salvo','ok'); }
     else { toast('Erro: '+(j.error||'desconhecido'),'err'); }
@@ -231,6 +241,7 @@ void WebManager::handleGetAlarms() {
         o["days"]    = a.daysMask;
         o["repeat"]  = a.repeat;
         o["label"]   = a.label;
+        o["snooze"]  = a.snoozeMinutes;
     }
 
     String out;
@@ -267,6 +278,9 @@ void WebManager::handlePostAlarm() {
     const char* label = doc["label"] | "Alarme";
     strncpy(a.label, label, sizeof(a.label) - 1);
     a.label[sizeof(a.label) - 1] = '\0';
+
+    int snooze = doc["snooze"] | 5;
+    a.snoozeMinutes = (uint8_t)constrain(snooze, 1, 30);
 
     // Validação básica — evita gravar um alarme com hora/minuto absurdos
     // vindo de um cliente mal-comportado.

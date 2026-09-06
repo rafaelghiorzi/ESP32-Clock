@@ -140,7 +140,7 @@ void AlarmManager::update() {
     }
 
     if (_snoozing) {
-        if (now - _snoozeStartMs >= AlarmCfg::SNOOZE_DURATION_MS) {
+        if (now - _snoozeStartMs >= _snoozeDurationMs) {
             Serial.println("[Alarm] soneca acabou, tocando de novo");
             _snoozing = false;
             _ringStartMs = now;
@@ -218,14 +218,27 @@ void AlarmManager::waitForRingTaskToStop() {
 }
 
 void AlarmManager::enterSnooze() {
-    Serial.println("[Alarm] soneca ativada, toca de novo em 5 minutos");
+    int8_t idx = _ringingIndex.load();
+    uint8_t snoozeMinutes = 5; // fallback se por algum motivo o índice não for válido
+    if (idx >= 0 && idx < (int8_t)MAX_ALARMS) {
+        xSemaphoreTake(_mutex, portMAX_DELAY);
+        snoozeMinutes = _alarms[idx].snoozeMinutes;
+        xSemaphoreGive(_mutex);
+    }
+    if (snoozeMinutes == 0) snoozeMinutes = 5; // proteção extra (nunca soneca de 0min)
+
+    Serial.printf("[Alarm] soneca ativada, toca de novo em %u minuto(s)\n", snoozeMinutes);
     _ringing.store(false);
     waitForRingTaskToStop();
 
     _snoozing = true;
     _snoozeUsed = true;
     _snoozeStartMs = millis();
-    setMessage("Toque em 5 minutos!", AlarmCfg::SNOOZE_MESSAGE_MS);
+    _snoozeDurationMs = (uint32_t)snoozeMinutes * 60000UL;
+
+    char msg[24];
+    snprintf(msg, sizeof(msg), "Toque em %u minuto%s!", snoozeMinutes, snoozeMinutes == 1 ? "" : "s");
+    setMessage(msg, AlarmCfg::SNOOZE_MESSAGE_MS);
 
     Sound.playSnoozeConfirm(); // "pi-pi-pi"
 }

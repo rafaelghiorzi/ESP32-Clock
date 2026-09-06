@@ -53,6 +53,7 @@ struct Alarm {
     uint8_t minute   = 0;
     uint8_t daysMask = 0;      // bit0=domingo .. bit6=sábado (bate com tm_wday)
     char    label[16] = "Alarme";
+    uint8_t snoozeMinutes = 5; // 1-30, configurável por alarme na web
 };
 
 class AlarmManager {
@@ -123,10 +124,11 @@ private:
     std::atomic<uint32_t> _lastChangeMs{0};
 
     // Só tocados no core 1 (loop()) — ver comentário de concorrência acima.
-    bool     _snoozing = false;      // true durante os 5 min de espera silenciosa do soneca
+    bool     _snoozing = false;      // true durante a espera silenciosa do soneca
     bool     _snoozeUsed = false;    // true depois que o soneca já foi usado neste ciclo de disparo
     uint32_t _ringStartMs = 0;
     uint32_t _snoozeStartMs = 0;
+    uint32_t _snoozeDurationMs = 0;  // duração do soneca ATUAL (vem de Alarm::snoozeMinutes, varia por alarme)
 
     char     _messageBuf[24] = "";
     uint32_t _messageUntilMs = 0;
