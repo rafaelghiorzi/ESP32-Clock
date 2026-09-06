@@ -145,6 +145,24 @@ void loop() {
                 data.humidity    = (int)(w.humidity + 0.5f);
             }
 
+            // Linha de status no rodapé: aviso de bateria do RTC tem
+            // prioridade e sobrepõe o indicador de sincronização normal.
+            if (RtcClock.isBatteryLow()) {
+                data.statusLine = "Bateria do RTC fraca - troque a CR2032";
+                data.statusIsWarning = true;
+            } else {
+                uint32_t lastSync = max(Conn.getLastWeatherUpdateMs(), Alarms.getLastChangeMs());
+                if (lastSync > 0) {
+                    uint32_t elapsedMin = (millis() - lastSync) / 60000UL;
+                    char buf[24];
+                    if (elapsedMin < 1) snprintf(buf, sizeof(buf), "Sincronizado agora");
+                    else if (elapsedMin < 60) snprintf(buf, sizeof(buf), "Sincronizado ha %lumin", (unsigned long)elapsedMin);
+                    else snprintf(buf, sizeof(buf), "Sincronizado ha %luh", (unsigned long)(elapsedMin / 60));
+                    data.statusLine = buf;
+                }
+                data.statusIsWarning = false;
+            }
+
             Display.update(data);
         }
         // Sem hora válida ainda (sem RTC e sem NTP): tela fica preta

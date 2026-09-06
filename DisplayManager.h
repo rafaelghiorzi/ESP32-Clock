@@ -77,13 +77,21 @@ struct ClockData {
     // (sem piscar) na mesma linha, quando não há alarme tocando agora.
     String transientMessage;
 
+    // Linha de status no rodapé da tela: "Sincronizado há Xmin" (cinza
+    // claro) normalmente, ou um aviso (laranja) que a SOBREPÕE quando
+    // statusIsWarning=true (ex.: bateria do RTC fraca) — decidido no
+    // ESP32_Clock.ino, não aqui.
+    String statusLine;
+    bool   statusIsWarning = false;
+
     bool operator!=(const ClockData& o) const {
         return weekdayDate != o.weekdayDate || time != o.time ||
                alarmTime   != o.alarmTime   || alarmEnabled != o.alarmEnabled ||
                tempCurrent != o.tempCurrent || tempLow != o.tempLow ||
                tempHigh    != o.tempHigh    || humidity != o.humidity ||
                alarmRinging != o.alarmRinging || ringingLabel != o.ringingLabel ||
-               blinkOn != o.blinkOn || transientMessage != o.transientMessage;
+               blinkOn != o.blinkOn || transientMessage != o.transientMessage ||
+               statusLine != o.statusLine || statusIsWarning != o.statusIsWarning;
     }
 };
 
@@ -120,6 +128,7 @@ private:
     void drawTime(const String& text);
     void drawAlarm(const ClockData& data); // precisa do contexto todo (ringing/blink/label)
     void drawWeather(int cur, int lo, int hi, int hum);
+    void drawStatus(const ClockData& data); // linha de status no rodapé (sync/aviso)
 };
 
 extern DisplayManager Display;

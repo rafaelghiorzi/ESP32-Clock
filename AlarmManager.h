@@ -81,6 +81,11 @@ public:
     Alarm get(uint8_t index) const;             // cópia segura (mutex)
     bool  set(uint8_t index, const Alarm& alarm); // valida, grava em memória + NVS
 
+    // millis() da última vez que um alarme foi criado/editado pela web, ou
+    // 0 se nunca (desde o boot). Usado junto com o timestamp de clima do
+    // ConnManager pro indicador "sincronizado há Xmin" da tela.
+    uint32_t getLastChangeMs() const;
+
     // Para a linha de "Alarme HH:MM" da tela (Etapa 5): o próximo alarme
     // habilitado que vai disparar dali pra frente, olhando até 7 dias.
     struct NextAlarmInfo {
@@ -109,6 +114,10 @@ private:
     std::atomic<bool>   _ringTaskRunning{false}; // true enquanto a ringTask ainda não saiu do laço
     std::atomic<int8_t> _ringingIndex{-1};
     TaskHandle_t _ringTaskHandle = nullptr;
+
+    // set() é chamado pela task do WebManager (core 0); lido do loop() no
+    // core 1 pro indicador de status -> atomic.
+    std::atomic<uint32_t> _lastChangeMs{0};
 
     // Só tocados no core 1 (loop()) — ver comentário de concorrência acima.
     bool     _snoozing = false;      // true durante os 5 min de espera silenciosa do soneca

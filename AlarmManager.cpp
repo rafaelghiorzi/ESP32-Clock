@@ -50,10 +50,15 @@ bool AlarmManager::set(uint8_t index, const Alarm& alarm) {
     xSemaphoreGive(_mutex);
 
     saveToNVS(index);
+    _lastChangeMs.store(millis());
     Serial.printf("[Alarm] slot %u atualizado: %02d:%02d dias=0x%02X repete=%d ativo=%d \"%s\"\n",
                   index, alarm.hour, alarm.minute, alarm.daysMask, alarm.repeat,
                   alarm.enabled, alarm.label);
     return true;
+}
+
+uint32_t AlarmManager::getLastChangeMs() const {
+    return _lastChangeMs.load();
 }
 
 // =====================================================================

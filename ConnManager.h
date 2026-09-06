@@ -46,6 +46,12 @@ public:
     // mutex. Retorna false se ainda não houve nenhum fetch bem-sucedido.
     bool getWeatherSnapshot(WeatherData& out) const;
 
+    // millis() do último fetch de clima BEM-SUCEDIDO, ou 0 se nunca. Usado
+    // pro indicador "sincronizado há Xmin" na tela — também é o que
+    // corrige o clima "nunca expira": antes não havia como saber se o
+    // último dado mostrado tinha 2 minutos ou 2 dias.
+    uint32_t getLastWeatherUpdateMs() const;
+
     // Etapa 3 — enfileira comandos Yeelight (não bloqueante, seguro para
     // chamar direto do loop()/handler de botão no core 1). O envio real
     // (socket TCP, até ~500ms) acontece na yeelightTask, no core 0.
@@ -86,6 +92,7 @@ private:
     SemaphoreHandle_t _weatherMutex = nullptr;
     WeatherData       _latestWeather{};
     std::atomic<bool> _weatherReady{false};
+    std::atomic<uint32_t> _lastWeatherUpdateMs{0};
 
     QueueHandle_t _yeelightQueue = nullptr;
 

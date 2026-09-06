@@ -268,6 +268,10 @@ bool ConnManager::getWeatherSnapshot(WeatherData& out) const {
     return ready;
 }
 
+uint32_t ConnManager::getLastWeatherUpdateMs() const {
+    return _lastWeatherUpdateMs.load();
+}
+
 void ConnManager::weatherTask(void* param) {
     auto* self = static_cast<ConnManager*>(param);
 
@@ -282,6 +286,7 @@ void ConnManager::weatherTask(void* param) {
                 self->_latestWeather = fresh;
                 xSemaphoreGive(self->_weatherMutex);
                 self->_weatherReady.store(true);
+                self->_lastWeatherUpdateMs.store(millis());
             }
         } else {
             Serial.println("[Weather] sem WiFi ainda, tentando de novo em breve");

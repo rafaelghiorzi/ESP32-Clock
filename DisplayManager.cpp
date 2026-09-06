@@ -72,8 +72,16 @@ namespace Layout {
 
     constexpr int DATE_Y = 20;      constexpr uint8_t DATE_SIZE = 2;
     constexpr int TIME_Y = 60;      constexpr uint8_t TIME_SIZE = 6;
-    constexpr int ALARM_Y = 150;    constexpr uint8_t ALARM_SIZE = 2;
-    constexpr int WEATHER_Y = 190;  constexpr uint8_t WEATHER_SIZE = 2;
+    // Alarme e clima subiram 15px (de 150/190 pra 135/175) pra abrir espaço
+    // pra linha de status no rodapé, sem encostar nela.
+    constexpr int ALARM_Y = 135;    constexpr uint8_t ALARM_SIZE = 2;
+    constexpr int WEATHER_Y = 175;  constexpr uint8_t WEATHER_SIZE = 2;
+
+    // Linha de status: fonte pequena (size 1), colada no rodapé com
+    // margem de 2-3px — geometria calculada em drawStatus() a partir da
+    // altura real da tela, não fixada aqui.
+    constexpr uint8_t STATUS_SIZE = 1;
+    constexpr int STATUS_BOTTOM_MARGIN = 3;
 
     constexpr int rowHeight(uint8_t textSize) {
         return GLYPH_BASE_HEIGHT * textSize + ROW_PADDING * 2;
@@ -130,6 +138,9 @@ void DisplayManager::update(const ClockData& data) {
     if (_first || data.tempCurrent != _last.tempCurrent || data.tempLow != _last.tempLow ||
                   data.tempHigh != _last.tempHigh || data.humidity != _last.humidity)
         drawWeather(data.tempCurrent, data.tempLow, data.tempHigh, data.humidity);
+
+    if (_first || data.statusLine != _last.statusLine || data.statusIsWarning != _last.statusIsWarning)
+        drawStatus(data);
 
     // Único push físico pro painel, atômico -> zero tearing, não importa
     // quantos campos foram redesenhados no sprite acima.
@@ -260,4 +271,23 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
 
         x += itemWidths[index] + ITEM_GAP;
     }
+}
+
+void DisplayManager::drawStatus(const ClockData& data) {
+    int w = _frame.width();
+    int h = _frame.height();
+
+    int textHeight = Layout::GLYPH_BASE_HEIGHT * Layout::STATUS_SIZE;
+    int y = h - Layout::STATUS_BOTTOM_MARGIN - textHeight; // topo do texto, alinhado ao datum top_center
+    int clearY = y - 2;
+    int clearH = textHeight + 4;
+
+    _frame.fillRect(0, clearY, w, clearH, TFT_BLACK);
+
+    if (data.statusLine.length() == 0) return; // nada a mostrar, só limpa
+
+    _frame.setTextDatum(top_center);
+    _frame.setTextColor(data.statusIsWarning ? TFT_ORANGE : TFT_LIGHTGREY);
+    _frame.setTextSize(Layout::STATUS_SIZE);
+    _frame.drawString(data.statusLine, w / 2, y);
 }

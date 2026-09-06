@@ -34,7 +34,8 @@ void TimeManager::begin() {
     if (!_rtcPresent) {
         Serial.println("[Clock] DS3231 nao encontrado no barramento I2C — relogio so fica valido apos o primeiro NTP");
     } else {
-        if (_rtc.lostPower()) {
+        _batteryLow = _rtc.lostPower();
+        if (_batteryLow) {
             Serial.println("[Clock] aviso: DS3231 perdeu energia (bateria fraca/ausente?) — hora pode estar errada ate o proximo NTP");
         }
         seedFromRTC();
@@ -86,6 +87,10 @@ bool TimeManager::isTimeValid() const {
 
 bool TimeManager::isRTCPresent() const {
     return _rtcPresent;
+}
+
+bool TimeManager::isBatteryLow() const {
+    return _batteryLow;
 }
 
 String TimeManager::getDisplayTimeString() {

@@ -30,6 +30,13 @@ public:
     bool isTimeValid() const;   // true assim que há alguma hora confiável (RTC ou NTP)
     bool isRTCPresent() const;
 
+    // true se o DS3231 relatou ter perdido energia (lostPower()/OSF) na
+    // última vez que checamos (só no boot — o DS3231 não expõe tensão de
+    // bateria contínua, só essa flag de "parou de contar em algum momento
+    // desde a última vez que a hora foi ajustada"). Indica bateria CR2032
+    // fraca ou ausente.
+    bool isBatteryLow() const;
+
     String getDisplayTimeString(); // "13:45"
     String getDisplayDateString(); // "SEX, 04 SET"
     uint8_t second() const;        // segundo atual (0-59) — usado pra piscar coisas na tela
@@ -41,6 +48,7 @@ private:
 
     RTC_DS3231 _rtc;
     bool _rtcPresent = false;
+    bool _batteryLow = false;
     std::atomic<bool> _timeValid{false};
 
     TaskHandle_t _ntpTaskHandle = nullptr;
