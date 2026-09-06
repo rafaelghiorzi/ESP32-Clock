@@ -43,8 +43,11 @@ static const char* resetReasonName(esp_reset_reason_t reason) {
 static uint8_t currentScene = 0;
 static uint32_t lastWeatherLogMs = 0;
 static uint32_t lastDisplayMs = 0;
+static uint32_t lastHeapCheckMs = 0;
 constexpr uint32_t WEATHER_LOG_INTERVAL_MS = 30'000;
 constexpr uint32_t DISPLAY_TICK_INTERVAL_MS = 1'000;
+constexpr uint32_t HEAP_CHECK_INTERVAL_MS = 60'000;
+constexpr uint32_t HEAP_CRITICAL_BYTES = 20'000; // abaixo disso, reinicia preventivamente
 
 void setup() {
     Serial.begin(115200);
@@ -131,6 +134,20 @@ void loop() {
 
     // Verifica alarmes 1x/seg (throttle interno por minuto já embutido).
     Alarms.update();
+
+    // Monitora heap livre — se cair criticamente baixo (sinal de
+    // fragmentação acumulada rodando por dias/semanas), reinicia de
+    // forma controlada em vez de esperar um crash real acontecer sozinho.
+    if (now - lastHeapCheckMs >= HEAP_CHECK_INTERVAL_MS) {
+        lastHeapCheckMs = now;
+        uint32_t freeHeap = ESP.getFreeHeap();
+        Serial.printf("[System] heap livre: %u bytes\n", freeHeap);
+        if (freeHeap < HEAP_CRITICAL_BYTES) {
+            Serial.println("[System] heap criticamente baixo -> reiniciando preventivamente");
+            delay(200); // dá tempo do Serial.print sair antes do restart
+            ESP.restart();
+        }
+    }
 
     // Etapa 2: só loga o snapshot de clima em memória.
     if (now - lastWeatherLogMs >= WEATHER_LOG_INTERVAL_MS) {
