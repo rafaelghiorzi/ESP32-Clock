@@ -40,6 +40,36 @@ constexpr uint16_t PASTEL_CYAN   = rgb565(150, 235, 235);
 constexpr uint16_t PASTEL_BLUE   = rgb565(125, 190, 255);
 constexpr uint16_t PASTEL_ORANGE = rgb565(255, 190, 125);
 
+// =====================================================================
+// Temas — cada um define o PAPEL de cada cor, não um valor fixo (ex.:
+// "warning" é laranja vivo no Escuro/Noite, mas mais escuro no Claro pra
+// manter contraste em fundo claro). Selecionável pela web, persistido na
+// NVS. Índice 0 é o padrão de sempre (Escuro).
+// =====================================================================
+static const DisplayTheme THEMES[] = {
+    // name,            bg,                    textPrimary,           textMuted,
+    //   warning,               alarmDisabled,         alarmIconOn,   alarmIconOff,
+    //   ringingText,   iconTempHot, iconTempCold, iconHumidity
+    { "Escuro", TFT_BLACK, TFT_WHITE, TFT_LIGHTGREY,
+      TFT_ORANGE, TFT_GOLD, PASTEL_ORANGE, TFT_DARKGREY,
+      TFT_RED, PASTEL_RED, PASTEL_CYAN, PASTEL_BLUE },
+
+    { "Claro", rgb565(245, 245, 245), rgb565(20, 20, 25), rgb565(120, 120, 125),
+      rgb565(200, 80, 0), rgb565(150, 115, 0), rgb565(220, 130, 30), rgb565(190, 190, 190),
+      rgb565(200, 30, 30), rgb565(200, 60, 70), rgb565(30, 140, 170), rgb565(40, 100, 190) },
+
+    // "Noite": tudo em tons de vermelho — o vermelho preserva melhor a
+    // visão noturna que branco/azul/ciano.
+    { "Noite", TFT_BLACK, rgb565(190, 25, 25), rgb565(95, 20, 20),
+      rgb565(170, 85, 10), rgb565(120, 55, 10), rgb565(180, 60, 20), rgb565(70, 20, 20),
+      rgb565(255, 40, 40), rgb565(180, 40, 40), rgb565(150, 50, 50), rgb565(140, 40, 60) },
+
+    { "Nascer do Sol", rgb565(15, 10, 30), rgb565(255, 230, 205), rgb565(180, 140, 150),
+      rgb565(255, 100, 60), rgb565(200, 150, 120), rgb565(255, 160, 60), rgb565(120, 90, 110),
+      rgb565(255, 90, 90), rgb565(255, 120, 90), rgb565(255, 190, 140), rgb565(230, 140, 180) },
+};
+static constexpr uint8_t THEME_COUNT = sizeof(THEMES) / sizeof(THEMES[0]);
+
 // Escalador de bitmap 1bpp "nearest neighbor" pixel a pixel — os ícones
 // são pequenos (15x16 no máximo) e só redesenhados quando o campo muda,
 // então o custo é desprezível.
@@ -100,10 +130,42 @@ void DisplayManager::begin() {
     _frame.setPsram(true);
     _frame.setColorDepth(16);
     _frame.createSprite(_gfx.width(), _gfx.height());
-    _frame.fillScreen(TFT_BLACK);
+
+    _themePrefs.begin("display", false);
+    uint8_t savedTheme = _themePrefs.getUChar("theme", 0);
+    _themeIndex.store(savedTheme < THEME_COUNT ? savedTheme : 0);
+    Serial.printf("[Display] tema: %s\n", theme().name);
+
+    _frame.fillScreen(theme().background);
 
     _first = true;
     Serial.println("[Display] pronto, aguardando primeiro update()");
+}
+
+const DisplayTheme& DisplayManager::theme() const {
+    uint8_t idx = _themeIndex.load();
+    return THEMES[idx < THEME_COUNT ? idx : 0];
+}
+
+void DisplayManager::setTheme(uint8_t index) {
+    if (index >= THEME_COUNT) return;
+    _themeIndex.store(index);
+    _themePrefs.putUChar("theme", index);
+    _forceRedraw.store(true); // força redesenhar tudo com as cores novas no próximo update()
+    Serial.printf("[Display] tema trocado pra: %s\n", THEMES[index].name);
+}
+
+uint8_t DisplayManager::getTheme() const {
+    return _themeIndex.load();
+}
+
+uint8_t DisplayManager::themeCount() {
+    return THEME_COUNT;
+}
+
+const char* DisplayManager::themeName(uint8_t index) {
+    if (index >= THEME_COUNT) return "";
+    return THEMES[index].name;
 }
 
 void DisplayManager::runBootColorTest() {
@@ -121,25 +183,28 @@ void DisplayManager::runBootColorTest() {
 }
 
 void DisplayManager::update(const ClockData& data) {
-    if (!_first && !(data != _last)) return; // nada mudou, não faz nada (nem push)
+    bool force = _first || _forceRedraw.exchange(false);
+    if (!force && !(data != _last)) return; // nada mudou, não faz nada (nem push)
 
-    if (_first || strcmp(data.weekdayDate, _last.weekdayDate) != 0)
+    if (force) _frame.fillScreen(theme().background); // tema novo -> limpa tudo antes de redesenhar
+
+    if (force || strcmp(data.weekdayDate, _last.weekdayDate) != 0)
         drawDate(data.weekdayDate);
 
-    if (_first || strcmp(data.time, _last.time) != 0)
+    if (force || strcmp(data.time, _last.time) != 0)
         drawTime(data.time);
 
     bool alarmChanged = strcmp(data.alarmTime, _last.alarmTime) != 0 || data.alarmEnabled != _last.alarmEnabled ||
                         data.alarmRinging != _last.alarmRinging || strcmp(data.ringingLabel, _last.ringingLabel) != 0 ||
                         data.blinkOn != _last.blinkOn || strcmp(data.transientMessage, _last.transientMessage) != 0;
-    if (_first || alarmChanged)
+    if (force || alarmChanged)
         drawAlarm(data);
 
-    if (_first || data.tempCurrent != _last.tempCurrent || data.tempLow != _last.tempLow ||
-                  data.tempHigh != _last.tempHigh || data.humidity != _last.humidity)
+    if (force || data.tempCurrent != _last.tempCurrent || data.tempLow != _last.tempLow ||
+                 data.tempHigh != _last.tempHigh || data.humidity != _last.humidity)
         drawWeather(data.tempCurrent, data.tempLow, data.tempHigh, data.humidity);
 
-    if (_first || strcmp(data.statusLine, _last.statusLine) != 0 || data.statusIsWarning != _last.statusIsWarning)
+    if (force || strcmp(data.statusLine, _last.statusLine) != 0 || data.statusIsWarning != _last.statusIsWarning)
         drawStatus(data);
 
     // Único push físico pro painel, atômico -> zero tearing, não importa
@@ -153,38 +218,41 @@ void DisplayManager::update(const ClockData& data) {
 }
 
 void DisplayManager::drawDate(const char* text) {
+    const DisplayTheme& t = theme();
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::DATE_SIZE);
-    _frame.fillRect(0, Layout::DATE_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+    _frame.fillRect(0, Layout::DATE_Y - Layout::ROW_PADDING, w, h, t.background);
 
     _frame.setTextDatum(top_center);
-    _frame.setTextColor(TFT_WHITE);
+    _frame.setTextColor(t.textPrimary);
     _frame.setTextSize(Layout::DATE_SIZE);
     _frame.drawString(text, w / 2, Layout::DATE_Y);
 }
 
 void DisplayManager::drawTime(const char* text) {
+    const DisplayTheme& t = theme();
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::TIME_SIZE);
-    _frame.fillRect(0, Layout::TIME_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+    _frame.fillRect(0, Layout::TIME_Y - Layout::ROW_PADDING, w, h, t.background);
 
     _frame.setTextDatum(top_center);
-    _frame.setTextColor(TFT_WHITE);
+    _frame.setTextColor(t.textPrimary);
     _frame.setTextSize(Layout::TIME_SIZE);
     _frame.drawString(text, w / 2, Layout::TIME_Y);
 }
 
 void DisplayManager::drawAlarm(const ClockData& data) {
+    const DisplayTheme& t = theme();
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::ALARM_SIZE);
-    _frame.fillRect(0, Layout::ALARM_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+    _frame.fillRect(0, Layout::ALARM_Y - Layout::ROW_PADDING, w, h, t.background);
 
     if (data.alarmRinging) {
         // Fase "apagada" do pisca-pisca: só limpa (já feito acima) e sai.
         if (!data.blinkOn) return;
 
         _frame.setTextDatum(top_center);
-        _frame.setTextColor(TFT_RED);
+        _frame.setTextColor(t.ringingText);
         _frame.setTextSize(Layout::ALARM_SIZE);
         _frame.drawString(data.ringingLabel, w / 2, Layout::ALARM_Y);
         return;
@@ -192,7 +260,7 @@ void DisplayManager::drawAlarm(const ClockData& data) {
 
     if (data.transientMessage[0] != '\0') {
         _frame.setTextDatum(top_center);
-        _frame.setTextColor(TFT_ORANGE);
+        _frame.setTextColor(t.warning);
         _frame.setTextSize(Layout::ALARM_SIZE);
         _frame.drawString(data.transientMessage, w / 2, Layout::ALARM_Y);
         return;
@@ -202,7 +270,7 @@ void DisplayManager::drawAlarm(const ClockData& data) {
     constexpr int ICON_HEIGHT = 16;
     constexpr int ICON_TEXT_GAP = 4;
 
-    _frame.setTextColor(data.alarmEnabled ? TFT_WHITE : TFT_GOLD);
+    _frame.setTextColor(data.alarmEnabled ? t.textPrimary : t.alarmDisabled);
     _frame.setTextSize(Layout::ALARM_SIZE);
 
     int textWidth = _frame.textWidth(data.alarmTime);
@@ -211,21 +279,22 @@ void DisplayManager::drawAlarm(const ClockData& data) {
 
     drawXbm(_frame, groupX, Layout::ALARM_Y, image_clock_alarm_bits, 15, 16,
             ICON_WIDTH, ICON_HEIGHT,
-            data.alarmEnabled ? PASTEL_ORANGE : TFT_DARKGREY);
+            data.alarmEnabled ? t.alarmIconOn : t.alarmIconOff);
 
     _frame.setTextDatum(top_left);
     _frame.drawString(data.alarmTime, groupX + ICON_WIDTH + ICON_TEXT_GAP, Layout::ALARM_Y);
 }
 
 void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
+    const DisplayTheme& t = theme();
     int w = _frame.width();
     int h = Layout::rowHeight(Layout::WEATHER_SIZE);
     constexpr int ICON_TEXT_GAP = 4;
     constexpr int ITEM_GAP = 14;
 
-    _frame.fillRect(0, Layout::WEATHER_Y - Layout::ROW_PADDING, w, h, TFT_BLACK);
+    _frame.fillRect(0, Layout::WEATHER_Y - Layout::ROW_PADDING, w, h, t.background);
     _frame.setTextSize(Layout::WEATHER_SIZE);
-    _frame.setTextColor(TFT_WHITE);
+    _frame.setTextColor(t.textPrimary);
 
     String values[] = {
         String(cur),
@@ -239,7 +308,7 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
         image_arrow_up_bits,
         image_drop_bits
     };
-    uint16_t iconColors[] = { PASTEL_RED, PASTEL_CYAN, PASTEL_RED, PASTEL_BLUE };
+    uint16_t iconColors[] = { t.iconTempHot, t.iconTempCold, t.iconTempHot, t.iconHumidity };
     int iconWidths[]  = {16, 10, 10, 16};
     int iconHeights[] = {16, 14, 14, 16};
     bool isTemperature[] = {true, true, true, false};
@@ -265,7 +334,7 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
 
         if (isTemperature[index]) {
             int degreeX = textX + _frame.textWidth(values[index]) + 3;
-            _frame.drawCircle(degreeX, Layout::WEATHER_Y + 3, 2, TFT_WHITE);
+            _frame.drawCircle(degreeX, Layout::WEATHER_Y + 3, 2, t.textPrimary);
             _frame.drawString("C", degreeX + 5, Layout::WEATHER_Y);
         }
 
@@ -274,6 +343,7 @@ void DisplayManager::drawWeather(int cur, int lo, int hi, int hum) {
 }
 
 void DisplayManager::drawStatus(const ClockData& data) {
+    const DisplayTheme& t = theme();
     int w = _frame.width();
     int h = _frame.height();
 
@@ -282,12 +352,12 @@ void DisplayManager::drawStatus(const ClockData& data) {
     int clearY = y - 2;
     int clearH = textHeight + 4;
 
-    _frame.fillRect(0, clearY, w, clearH, TFT_BLACK);
+    _frame.fillRect(0, clearY, w, clearH, t.background);
 
     if (data.statusLine[0] == '\0') return; // nada a mostrar, só limpa
 
     _frame.setTextDatum(top_center);
-    _frame.setTextColor(data.statusIsWarning ? TFT_ORANGE : TFT_LIGHTGREY);
+    _frame.setTextColor(data.statusIsWarning ? t.warning : t.textMuted);
     _frame.setTextSize(Layout::STATUS_SIZE);
     _frame.drawString(data.statusLine, w / 2, y);
 }

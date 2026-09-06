@@ -38,6 +38,8 @@ private:
     void handleStatus();
     void handleDismiss();
     void handleWakeLights();
+    void handleGetTheme();
+    void handlePostTheme();
     void handleNotFound();
 
     void onWsEvent(uint8_t clientId, WStype_t type, uint8_t* payload, size_t length);

@@ -2,6 +2,8 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <cstring>
+#include <atomic>
+#include <Preferences.h>
 #include "config.h"
 
 // =====================================================================
@@ -117,16 +119,45 @@ struct ClockData {
 // retângulo é calculada a partir da métrica real da fonte (8px de base
 // vezes o textSize), então nunca fica pequena demais.
 // =====================================================================
+// Paleta de cores de um tema — nomes descrevem o PAPEL da cor, não o
+// valor, pra cada tema poder reinterpretar livremente (ex.: "warning" é
+// laranja no tema Escuro mas um laranja mais escuro no Claro, pra manter
+// contraste em fundo claro).
+struct DisplayTheme {
+    const char* name;
+    uint16_t background;
+    uint16_t textPrimary;   // data/hora
+    uint16_t textMuted;     // linha de status normal ("sincronizado...")
+    uint16_t warning;       // aviso de bateria fraca / mensagens transientes
+    uint16_t alarmDisabled; // texto da hora do alarme quando desabilitado
+    uint16_t alarmIconOn;   // ícone do alarme quando habilitado
+    uint16_t alarmIconOff;  // ícone do alarme quando desabilitado
+    uint16_t ringingText;   // nome do alarme piscando enquanto toca
+    uint16_t iconTempHot;   // termômetro (atual/máxima)
+    uint16_t iconTempCold;  // seta pra baixo (mínima)
+    uint16_t iconHumidity;  // gota (umidade)
+};
+
 class DisplayManager {
 public:
     void begin();
     void update(const ClockData& data);
+
+    void setTheme(uint8_t index);       // valida, persiste na NVS, força redraw completo
+    uint8_t getTheme() const;
+    static uint8_t themeCount();
+    static const char* themeName(uint8_t index);
 
 private:
     LGFX _gfx;
     LGFX_Sprite _frame;
     ClockData _last;
     bool _first = true;
+
+    std::atomic<uint8_t> _themeIndex{0};
+    std::atomic<bool> _forceRedraw{false}; // setTheme() pode vir do core 0 (WebManager) -> não mexe em _first direto
+    Preferences _themePrefs;
+    const DisplayTheme& theme() const; // THEMES[_themeIndex], com clamp de segurança
 
     // Mantido por continuidade com o sketch de bancada (ciclo de cores de
     // bring-up). Roda direto no painel, antes do sprite existir.

@@ -2,6 +2,7 @@
 #include "AlarmManager.h"
 #include "TimeManager.h"
 #include "ConnManager.h"
+#include "DisplayManager.h"
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <cstring>
@@ -27,8 +28,11 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
        background:var(--bg);color:var(--text);margin:0;padding:20px 16px 80px;max-width:520px;
        margin-left:auto;margin-right:auto;}
+  .top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;}
   h1{font-size:1.05em;font-weight:600;letter-spacing:.02em;text-align:left;margin:0 0 2px;color:var(--text);}
   .status{color:var(--muted);margin-bottom:20px;font-size:.82em;}
+  .theme-select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;
+       padding:5px 8px;font-size:.8em;font-family:inherit;}
   .ring-banner{display:none;background:var(--danger);color:#fff;border-radius:10px;padding:14px 16px;
        margin-bottom:16px;align-items:center;justify-content:space-between;gap:12px;}
   .ring-banner .label{font-weight:600;font-size:.95em;}
@@ -79,7 +83,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>Alarmes</h1>
+<div class="top-row">
+  <h1>Alarmes</h1>
+  <label class="snooze-label">Tema do relogio
+    <select class="theme-select" id="themeSelect"></select>
+  </label>
+</div>
 <div class="status" id="status">carregando...</div>
 <div class="ring-banner" id="ringBanner">
   <span class="label" id="ringLabel">Tocando</span>
@@ -99,6 +108,21 @@ function toast(msg,type){
   t._hideTimer=setTimeout(()=>{t.className='toast';},2200);
 }
 
+async function loadTheme(){
+  try{
+    const r=await fetch('/api/theme');
+    const t=await r.json();
+    const sel=document.getElementById('themeSelect');
+    sel.innerHTML=t.names.map((n,i)=>'<option value="'+i+'"'+(i===t.current?' selected':'')+'>'+n+'</option>').join('');
+    sel.addEventListener('change',async function(){
+      try{
+        await fetch('/api/theme',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({index:parseInt(sel.value,10)})});
+        toast('Tema aplicado no relogio','ok');
+      }catch(e){ toast('Falha ao trocar tema','err'); }
+    });
+  }catch(e){}
+}
 async function load(){
   try{
     const r=await fetch('/api/alarms');
@@ -245,6 +269,7 @@ async function dismiss(){
 }
 load();
 loadStatus();
+loadTheme();
 connectWs();
 </script>
 </body>
@@ -258,6 +283,8 @@ void WebManager::begin() {
     _server.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
     _server.on("/api/dismiss", HTTP_POST, [this]() { handleDismiss(); });
     _server.on("/api/wakelights", HTTP_POST, [this]() { handleWakeLights(); });
+    _server.on("/api/theme", HTTP_GET, [this]() { handleGetTheme(); });
+    _server.on("/api/theme", HTTP_POST, [this]() { handlePostTheme(); });
     _server.onNotFound([this]() { handleNotFound(); });
 
     _server.begin();
@@ -410,6 +437,39 @@ void WebManager::handleDismiss() {
 
 void WebManager::handleWakeLights() {
     Conn.requestWakeLights();
+    _server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebManager::handleGetTheme() {
+    DynamicJsonDocument doc(256);
+    doc["current"] = Display.getTheme();
+    JsonArray names = doc.createNestedArray("names");
+    for (uint8_t i = 0; i < Display.themeCount(); i++) names.add(Display.themeName(i));
+
+    String out;
+    serializeJson(doc, out);
+    _server.send(200, "application/json", out);
+}
+
+void WebManager::handlePostTheme() {
+    if (!_server.hasArg("plain")) {
+        _server.send(400, "application/json", "{\"ok\":false,\"error\":\"corpo vazio\"}");
+        return;
+    }
+
+    DynamicJsonDocument doc(128);
+    if (deserializeJson(doc, _server.arg("plain"))) {
+        _server.send(400, "application/json", "{\"ok\":false,\"error\":\"json invalido\"}");
+        return;
+    }
+
+    int index = doc["index"] | -1;
+    if (index < 0 || index >= Display.themeCount()) {
+        _server.send(400, "application/json", "{\"ok\":false,\"error\":\"tema invalido\"}");
+        return;
+    }
+
+    Display.setTheme((uint8_t)index);
     _server.send(200, "application/json", "{\"ok\":true}");
 }
 
