@@ -27,7 +27,13 @@ void SoundManager::begin() {
         .use_apll = false,
         .tx_desc_auto_clear = true
     };
-    i2s_driver_install(I2S_PORT, &cfg, 0, NULL);
+    // Erros aqui eram ignorados antes — agora logados explicitamente, pra
+    // não ficar "achando" que o I2S subiu certo quando na verdade falhou
+    // silenciosamente (útil pra diagnosticar problema de alto-falante).
+    esp_err_t err = i2s_driver_install(I2S_PORT, &cfg, 0, NULL);
+    if (err != ESP_OK) {
+        Serial.printf("[Sound] ERRO ao instalar driver I2S: %d\n", (int)err);
+    }
 
     i2s_pin_config_t pins = {
         .bck_io_num = Pins::Audio::BCLK,
@@ -35,7 +41,10 @@ void SoundManager::begin() {
         .data_out_num = Pins::Audio::DIN,
         .data_in_num = I2S_PIN_NO_CHANGE
     };
-    i2s_set_pin(I2S_PORT, &pins);
+    err = i2s_set_pin(I2S_PORT, &pins);
+    if (err != ESP_OK) {
+        Serial.printf("[Sound] ERRO ao configurar pinos I2S: %d\n", (int)err);
+    }
 
     pinMode(Pins::Audio::BUZZER, OUTPUT);
     digitalWrite(Pins::Audio::BUZZER, LOW);
@@ -88,32 +97,39 @@ void SoundManager::workerTask(void* param) {
 
 void SoundManager::processRequest(const Request& req) {
     switch (req.cmd) {
+        // Regra: bipes curtos de feedback -> sempre buzzer. Sons "de
+        // verdade" (amostra gravada) -> sempre alto-falante. Nada de
+        // silêncio via I2S aqui — esses bipes nunca tocam no I2S, então
+        // um delay() comum entre eles basta (não tem DMA de alto-falante
+        // pra manter alimentado nesses casos).
         case Cmd::Click:
-            playToneBlocking(1500.0f, 40, 0.2f);
+            playBuzzerToneBlocking(1500.0f, 40);
             break;
 
         case Cmd::BootBeep:
-            Serial.println("[Sound] beep de confirmação de boot");
-            playToneBlocking(1200.0f, 80, 0.25f);
-            playSilenceBlocking(30);
-            playToneBlocking(1800.0f, 60, 0.25f);
+            Serial.println("[Sound] beep de confirmação de boot (buzzer)");
+            playBuzzerToneBlocking(1200.0f, 80);
+            delay(30);
+            playBuzzerToneBlocking(1800.0f, 60);
             break;
 
         case Cmd::SnoozeConfirm:
             for (int i = 0; i < 3; i++) {
-                playToneBlocking(1800.0f, 70, 0.25f);
-                playSilenceBlocking(80);
+                playBuzzerToneBlocking(1800.0f, 70);
+                delay(80);
             }
             break;
 
         case Cmd::AlarmOff:
-            playToneBlocking(1600.0f, 120, 0.25f);
-            playSilenceBlocking(40);
-            playToneBlocking(700.0f, 180, 0.25f);
+            playBuzzerToneBlocking(1600.0f, 120);
+            delay(40);
+            playBuzzerToneBlocking(700.0f, 180);
             break;
 
         case Cmd::PhantomCigar:
+            Serial.println("[Sound] tocando phantomcigar (alto-falante)...");
             playSampleBlocking(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
+            Serial.println("[Sound] phantomcigar concluído");
             break;
 
         case Cmd::Ring: {
@@ -124,15 +140,15 @@ void SoundManager::processRequest(const Request& req) {
                 if (req.ringUseBuzzer) {
                     playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
-                    playSilenceBlocking(120);
+                    delay(120);
                     if (!req.ringActiveFlag->load()) break;
                     playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
-                    playSilenceBlocking(120);
+                    delay(120);
                     if (!req.ringActiveFlag->load()) break;
                     playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
-                    playSilenceBlocking(600);
+                    delay(600);
                 } else {
                     playSampleBlocking(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE); // ~8s
                     if (!req.ringActiveFlag->load()) break;
@@ -146,6 +162,10 @@ void SoundManager::processRequest(const Request& req) {
 
 // =====================================================================
 // Primitivas bloqueantes — só chamadas de dentro da workerTask.
+//
+// playToneBlocking() não é mais usada por nenhum Cmd no momento (todo
+// bipe foi pro buzzer) — deixada aqui de propósito, funcional, caso algum
+// dia queira um tom sintetizado saindo do alto-falante de novo.
 // =====================================================================
 
 void SoundManager::playToneBlocking(float freqHz, uint32_t durationMs, float amplitude) {
