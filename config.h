@@ -1,3 +1,5 @@
+// V1.0!
+
 #pragma once
 #include <Arduino.h>
 #include <WiFi.h> // wifi_power_t / wifi_ps_type_t usados em WifiCfg abaixo
