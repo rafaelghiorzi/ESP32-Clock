@@ -122,6 +122,13 @@ namespace Layout {
 
 void DisplayManager::begin() {
     Serial.println("[Display] init()...");
+
+    // Backlight primeiro, no brilho máximo — senão o ciclo de cores de
+    // bring-up ficaria invisível com o MOSFET ainda fechado (LEDC começa
+    // em duty 0 até a primeira escrita).
+    ledcAttach(Pins::Display::BACKLIGHT, BacklightCfg::PWM_FREQ, BacklightCfg::PWM_RESOLUTION);
+    setBrightness(BacklightCfg::DAY_BRIGHTNESS);
+
     _gfx.init();
     _gfx.setRotation(DisplayCfg::ROTATION);
 
@@ -159,6 +166,13 @@ void DisplayManager::setTheme(uint8_t index) {
 
 uint8_t DisplayManager::getTheme() const {
     return _themeIndex.load();
+}
+
+void DisplayManager::setBrightness(uint8_t value) {
+    if (value == _lastBrightness) return; // já está nesse brilho, não reescreve o LEDC à toa
+    _lastBrightness = value;
+    ledcWrite(Pins::Display::BACKLIGHT, value);
+    Serial.printf("[Display] brilho do backlight: %u/255\n", value);
 }
 
 uint8_t DisplayManager::themeCount() {

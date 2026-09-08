@@ -109,6 +109,13 @@ uint8_t TimeManager::second() const {
     return (uint8_t)t.tm_sec;
 }
 
+uint8_t TimeManager::hour() const {
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    return (uint8_t)t.tm_hour;
+}
+
 void TimeManager::getDisplayDateString(char* buf, size_t bufSize) const {
     time_t now = time(nullptr);
     struct tm t;

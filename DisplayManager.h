@@ -7,9 +7,12 @@
 #include "config.h"
 
 // =====================================================================
-// LGFX — ILI9341 via SPI, sem touch, backlight ligado direto em 3.3V.
-// Configuração idêntica ao sketch de bancada já validado no hardware novo
-// (sem flicker, sem estouro) — só com os pinos vindos de config.h.
+// LGFX — ILI9341 via SPI, sem touch. Configuração de barramento/painel
+// idêntica ao sketch de bancada já validado no hardware novo (sem
+// flicker, sem estouro) — só com os pinos vindos de config.h. O backlight
+// agora tem controle de brilho via MOSFET+PWM (ver setBrightness()),
+// então NÃO faz parte dessa classe LGFX (LovyanGFX não sabe nada sobre
+// ele) — é controlado direto por DisplayManager via LEDC.
 // =====================================================================
 class LGFX : public lgfx::LGFX_Device {
     lgfx::Panel_ILI9341 _panel_instance;
@@ -148,11 +151,22 @@ public:
     static uint8_t themeCount();
     static const char* themeName(uint8_t index);
 
+    // Brilho do backlight via PWM (LEDC) no MOSFET IRLZ44N — 0 a 255.
+    // Só escreve no LEDC se o valor realmente mudou (evita chamadas
+    // redundantes chamando isso todo tick de display).
+    void setBrightness(uint8_t value);
+
 private:
     LGFX _gfx;
     LGFX_Sprite _frame;
     ClockData _last;
     bool _first = true;
+    // Começa em 0 (não em 255!) de propósito: o LEDC também começa em duty
+    // 0 até a primeira escrita, então setBrightness(255) precisa detectar
+    // uma mudança real na 1a chamada em begin() pra de fato acender o
+    // backlight — se começasse já "255", a checagem de redundância
+    // pularia essa 1a escrita e o MOSFET ficaria fechado.
+    uint8_t _lastBrightness = 0;
 
     std::atomic<uint8_t> _themeIndex{0};
     std::atomic<bool> _forceRedraw{false}; // setTheme() pode vir do core 0 (WebManager) -> não mexe em _first direto

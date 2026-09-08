@@ -174,6 +174,13 @@ void loop() {
         lastDisplayMs = now;
 
         if (RtcClock.isTimeValid()) {
+            // Brilho automático dia/noite — barato de checar todo tick já
+            // que setBrightness() só escreve no LEDC quando o valor muda
+            // de verdade (nas duas transições, 21h e 6h).
+            uint8_t hour = RtcClock.hour();
+            bool isNight = (hour >= BacklightCfg::NIGHT_START_HOUR) || (hour < BacklightCfg::NIGHT_END_HOUR);
+            Display.setBrightness(isNight ? BacklightCfg::NIGHT_BRIGHTNESS : BacklightCfg::DAY_BRIGHTNESS);
+
             ClockData data;
             RtcClock.getDisplayDateString(data.weekdayDate, sizeof(data.weekdayDate));
             RtcClock.getDisplayTimeString(data.time, sizeof(data.time));

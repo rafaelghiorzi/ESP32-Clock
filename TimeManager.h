@@ -42,6 +42,7 @@ public:
     void getDisplayTimeString(char* buf, size_t bufSize) const; // "13:45"
     void getDisplayDateString(char* buf, size_t bufSize) const; // "SEX, 04 SET"
     uint8_t second() const;        // segundo atual (0-59) — usado pra piscar coisas na tela
+    uint8_t hour() const;          // hora atual (0-23) — usado pro dimming automático do backlight
 
 private:
     static void ntpSyncTask(void* param);

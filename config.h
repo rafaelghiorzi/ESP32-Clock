@@ -16,7 +16,6 @@
 namespace Pins {
 
     // ---------- Display ILI9341 (SPI, sem touch) ----------
-    // LED do backlight vai direto em 3.3V, sem GPIO dedicado nesta revisão.
     namespace Display {
         constexpr uint8_t CS   = 14;
         constexpr uint8_t RST  = 13;
@@ -24,6 +23,12 @@ namespace Pins {
         constexpr uint8_t MOSI = 11;
         constexpr uint8_t SCK  = 10;
         constexpr int8_t  MISO = -1; // não conectado
+
+        // Backlight agora passa por um MOSFET IRLZ44N (dreno no 3.3V,
+        // fonte no pino "LED" do display, gate aqui via resistor de
+        // 100Ω + pull-down de 10kΩ pro GND) -> PWM real via LEDC, em vez
+        // de ligado direto no 3.3V sem controle nenhum.
+        constexpr uint8_t BACKLIGHT = 7;
     }
 
     // ---------- Áudio — MAX98357A (I2S, mono) ----------
@@ -44,7 +49,7 @@ namespace Pins {
         // pra volumes baixos/médios (a corrente de um piezo é bem baixa);
         // se quiser mais volume depois, um NPN tipo 2N2222 como driver
         // simples ajuda.
-        constexpr uint8_t BUZZER = 9;
+        constexpr uint8_t BUZZER = 47;
     }
 
     // ---------- RTC — DS3231 (I2C) — usado a partir da Etapa 4 ----------
@@ -172,4 +177,19 @@ namespace AlarmCfg {
     constexpr uint32_t RING_DURATION_MS   = 3UL * 60 * 1000; // toca até 3min antes de soneca/desligar sozinho
     constexpr uint32_t SNOOZE_DURATION_MS = 5UL * 60 * 1000; // soneca dura 5min, silenciosa
     constexpr uint32_t SNOOZE_MESSAGE_MS  = 4000;            // "Toque em 5 minutos!" fica 4s na tela
+}
+
+// =====================================================================
+// BACKLIGHT — brilho automático via PWM (LEDC) no MOSFET IRLZ44N.
+// =====================================================================
+namespace BacklightCfg {
+    constexpr uint32_t PWM_FREQ       = 20'000; // 20kHz, acima do audível — sem risco de "apito" no MOSFET/LED
+    constexpr uint8_t  PWM_RESOLUTION = 8;       // 8 bits -> duty 0-255
+
+    constexpr uint8_t DAY_BRIGHTNESS   = 255; // 100%
+    constexpr uint8_t NIGHT_BRIGHTNESS = 20;  // ~8%, bem escurecido mas ainda legível no escuro
+
+    // Janela "noturna": das 21h até as 6h do dia seguinte.
+    constexpr uint8_t NIGHT_START_HOUR = 21;
+    constexpr uint8_t NIGHT_END_HOUR   = 6;
 }
