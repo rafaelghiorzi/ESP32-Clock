@@ -122,15 +122,15 @@ void SoundManager::processRequest(const Request& req) {
 
             while (req.ringActiveFlag->load() && (millis() - startMs) < RING_TIMEOUT_SAFETY_MS) {
                 if (req.ringUseBuzzer) {
-                    playBuzzerToneBlocking(1500.0f, 150);
+                    playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
                     playSilenceBlocking(120);
                     if (!req.ringActiveFlag->load()) break;
-                    playBuzzerToneBlocking(1500.0f, 150);
+                    playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
                     playSilenceBlocking(120);
                     if (!req.ringActiveFlag->load()) break;
-                    playBuzzerToneBlocking(1500.0f, 150);
+                    playBuzzerToneBlocking(BuzzerCfg::RING_FREQ_HZ, 150);
                     if (!req.ringActiveFlag->load()) break;
                     playSilenceBlocking(600);
                 } else {

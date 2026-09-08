@@ -193,3 +193,17 @@ namespace BacklightCfg {
     constexpr uint8_t NIGHT_START_HOUR = 21;
     constexpr uint8_t NIGHT_END_HOUR   = 6;
 }
+
+// =====================================================================
+// BUZZER — piezo passivo, alimentado só pelos 3.3V do GPIO (via resistor
+// série) sem estágio de amplificação -> volume é fundamentalmente
+// limitado por hardware. Uma coisa de graça que ajuda: piezos têm um pico
+// de volume bem pronunciado na frequência de ressonância deles (varia por
+// modelo, comum entre ~2 e 4.5kHz pros de 12mm) — mude o valor abaixo e
+// teste ao vivo pra achar o ponto mais alto do seu buzzer específico.
+// Se isso não bastar, o fix de verdade é hardware (driver a transistor
+// alimentado em 5V em vez de bater direto no GPIO de 3.3V).
+// =====================================================================
+namespace BuzzerCfg {
+    constexpr float RING_FREQ_HZ = 1500.0f;
+}
