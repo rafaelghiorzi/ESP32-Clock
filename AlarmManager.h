@@ -21,7 +21,7 @@
 // Máquina de estados do toque (tudo isso roda só no core 1, disparado por
 // update()/handleButton4()/handleButton5() chamados do loop() — por isso
 // os campos de tempo/estado do soneca abaixo NÃO são atomic, só _ringing/
-// _ringingIndex são, porque a ringTask no core 0 só lê esses dois):
+// _ringingIndex são, porque a task de som do SoundManager também os lê):
 //
 //   disparo -> toca até 3 min -----+-- BTN4 a qualquer momento -> desliga (pi-po)
 //                                  |
@@ -110,22 +110,24 @@ public:
 private:
     void loadFromNVS();
     void saveToNVS(uint8_t index);
-    void startRinging(uint8_t index);
-    static void ringTask(void* param);
+    void startRinging(uint8_t index); // lê o som configurado e chama Sound.requestRingPattern() — não bloqueia
 
     void enterSnooze();     // para o som, agenda novo toque em 5min, toca pi-pi-pi, seta mensagem
     void dismissRinging();  // para o som de vez, toca pi-po
-    void waitForRingTaskToStop(); // espera (bounded) a ringTask sair antes de tocar pi-pi-pi/pi-po
     void setMessage(const char* text, uint32_t durationMs);
 
     Alarm _alarms[MAX_ALARMS];
     SemaphoreHandle_t _mutex = nullptr;
     Preferences _prefs;
 
-    std::atomic<bool>   _ringing{false};       // som tocando agora — única coisa que a ringTask (core 0) lê
-    std::atomic<bool>   _ringTaskRunning{false}; // true enquanto a ringTask ainda não saiu do laço
+    // _ringing é o único estado compartilhado com o SoundManager: passamos
+    // o endereço dele pra Sound.requestRingPattern(), que fica checando
+    // sozinho (na própria task de som) até virar false. Nenhuma espera
+    // manual é mais necessária aqui — enterSnooze()/dismissRinging() só
+    // muda esse flag e enfileira o som de confirmação, que a fila do
+    // SoundManager já garante tocar só depois do padrão de toque parar.
+    std::atomic<bool>   _ringing{false};
     std::atomic<int8_t> _ringingIndex{-1};
-    TaskHandle_t _ringTaskHandle = nullptr;
 
     // set() é chamado pela task do WebManager (core 0); lido do loop() no
     // core 1 pro indicador de status -> atomic.

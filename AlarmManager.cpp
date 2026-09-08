@@ -115,10 +115,7 @@ void AlarmManager::update() {
                     Serial.printf("[Alarm] conflito: slot %u coincidiu com o ciclo ativo do slot %d -> ambos cancelados\n",
                                   toRing, otherIndex);
 
-                    if (_ringing.load()) {
-                        _ringing.store(false);
-                        waitForRingTaskToStop();
-                    }
+                    _ringing.store(false); // a task de som do SoundManager para sozinha ao ver isso
                     _snoozing = false;
                     _ringingIndex.store(-1);
                     setMessage("Alarmes coincidiram, cancelados", AlarmCfg::SNOOZE_MESSAGE_MS);
@@ -204,27 +201,20 @@ void AlarmManager::startRinging(uint8_t index) {
     }
 
     bool wakeLights = false;
+    AlarmSound soundType = AlarmSound::Sample;
     xSemaphoreTake(_mutex, portMAX_DELAY);
     wakeLights = _alarms[index].wakeLights;
+    soundType = _alarms[index].sound;
     xSemaphoreGive(_mutex);
+
     if (wakeLights) Conn.requestWakeLights();
 
     _ringingIndex.store((int8_t)index);
-    _ringTaskRunning.store(true);
     _ringing.store(true);
-    xTaskCreatePinnedToCore(ringTask, "alarm_ring", 4096, this, 1, &_ringTaskHandle, 0);
-}
-
-void AlarmManager::waitForRingTaskToStop() {
-    // A ringTask checa _ringing entre cada bipe/pausa (granularidade de
-    // ~150ms), então esperar até 500ms é sobra suficiente pra garantir que
-    // ela realmente parou de escrever no I2S antes da gente tocar o som de
-    // confirmação por cima — evita as duas tasks escrevendo no mesmo
-    // periférico ao mesmo tempo (áudio embaralhado).
-    uint32_t start = millis();
-    while (_ringTaskRunning.load() && (millis() - start) < 500) {
-        delay(5);
-    }
+    // Não bloqueia: só enfileira o pedido. A própria task de som do
+    // SoundManager fica repetindo o padrão de toque, checando &_ringing
+    // sozinha, até a gente virar esse flag pra false (dismiss/soneca).
+    Sound.requestRingPattern(&_ringing, soundType == AlarmSound::Buzzer);
 }
 
 void AlarmManager::enterSnooze() {
@@ -238,8 +228,7 @@ void AlarmManager::enterSnooze() {
     if (snoozeMinutes == 0) snoozeMinutes = 5; // proteção extra (nunca soneca de 0min)
 
     Serial.printf("[Alarm] soneca ativada, toca de novo em %u minuto(s)\n", snoozeMinutes);
-    _ringing.store(false);
-    waitForRingTaskToStop();
+    _ringing.store(false); // a task de som vê isso e para o padrão de toque sozinha
 
     _snoozing = true;
     _snoozeUsed = true;
@@ -250,18 +239,19 @@ void AlarmManager::enterSnooze() {
     snprintf(msg, sizeof(msg), "Toque em %u minuto%s!", snoozeMinutes, snoozeMinutes == 1 ? "" : "s");
     setMessage(msg, AlarmCfg::SNOOZE_MESSAGE_MS);
 
+    // Só enfileira — a fila do SoundManager garante que isso toca depois
+    // do padrão de toque parar de vez, sem precisar esperar nada aqui.
     Sound.playSnoozeConfirm(); // "pi-pi-pi"
 }
 
 void AlarmManager::dismissRinging() {
     Serial.println("[Alarm] alarme desligado");
-    _ringing.store(false);
-    waitForRingTaskToStop();
+    _ringing.store(false); // a task de som vê isso e para o padrão de toque sozinha
 
     _snoozing = false;
     _ringingIndex.store(-1);
 
-    Sound.playAlarmOff(); // "pi-po"
+    Sound.playAlarmOff(); // "pi-po" — só enfileira, mesma lógica do comentário acima
 }
 
 void AlarmManager::handleButton4() {
@@ -306,41 +296,4 @@ bool AlarmManager::getMessage(String& out) const {
     if (millis() >= _messageUntilMs) return false;
     out = _messageBuf;
     return true;
-}
-
-void AlarmManager::ringTask(void* param) {
-    auto* self = static_cast<AlarmManager*>(param);
-
-    int8_t idx = self->_ringingIndex.load();
-    AlarmSound soundType = AlarmSound::Sample;
-    if (idx >= 0 && idx < (int8_t)MAX_ALARMS) {
-        xSemaphoreTake(self->_mutex, portMAX_DELAY);
-        soundType = self->_alarms[idx].sound;
-        xSemaphoreGive(self->_mutex);
-    }
-
-    while (self->_ringing.load()) {
-        if (soundType == AlarmSound::Buzzer) {
-            Sound.playBuzzerTone(1500.0f, 150);
-            if (!self->_ringing.load()) break;
-            delay(120);
-            if (!self->_ringing.load()) break;
-            Sound.playBuzzerTone(1500.0f, 150);
-            if (!self->_ringing.load()) break;
-            delay(120);
-            if (!self->_ringing.load()) break;
-            Sound.playBuzzerTone(1500.0f, 150);
-            if (!self->_ringing.load()) break;
-            delay(600);
-        } else {
-            Sound.playPhantomCigar(); // ~8s
-            if (!self->_ringing.load()) break;
-            delay(300);
-        }
-    }
-
-    self->_ringTaskRunning.store(false);
-    self->_ringTaskHandle = nullptr;
-    Serial.println("[Alarm] parou de tocar");
-    vTaskDelete(nullptr);
 }

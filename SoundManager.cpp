@@ -9,6 +9,11 @@ SoundManager Sound;
 
 static const i2s_port_t I2S_PORT = I2S_NUM_0;
 
+// Padrão de toque do alarme: mesmo timing de antes, só que agora vive
+// aqui dentro (a workerTask que executa, checando ringActiveFlag entre
+// cada trecho pra poder parar assim que AlarmManager sinalizar).
+constexpr uint32_t RING_TIMEOUT_SAFETY_MS = 5UL * 60 * 1000; // nunca toca mais que isso, aconteça o que acontecer
+
 void SoundManager::begin() {
     i2s_config_t cfg = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
@@ -35,11 +40,115 @@ void SoundManager::begin() {
     pinMode(Pins::Audio::BUZZER, OUTPUT);
     digitalWrite(Pins::Audio::BUZZER, LOW);
 
+    _requestQueue = xQueueCreate(8, sizeof(Request));
+    xTaskCreatePinnedToCore(workerTask, "sound_worker", 4096, this, 1, nullptr, 0);
+
     _initialized = true;
-    Serial.println("[Sound] I2S mono pronto (alto-falante + buzzer).");
+    Serial.println("[Sound] I2S mono pronto (alto-falante + buzzer), fila de reprodução ativa.");
 }
 
-void SoundManager::playTone(float freqHz, uint32_t durationMs, float amplitude) {
+// =====================================================================
+// API pública — só enfileira, nunca bloqueia quem chama.
+// =====================================================================
+
+void SoundManager::enqueue(const Request& req) {
+    if (!_requestQueue) return;
+    if (xQueueSend(_requestQueue, &req, 0) != pdTRUE) {
+        Serial.println("[Sound] fila de som cheia, pedido descartado");
+    }
+}
+
+void SoundManager::beepBoot()          { enqueue({Cmd::BootBeep}); }
+void SoundManager::playClick()         { enqueue({Cmd::Click}); }
+void SoundManager::playSnoozeConfirm() { enqueue({Cmd::SnoozeConfirm}); }
+void SoundManager::playAlarmOff()      { enqueue({Cmd::AlarmOff}); }
+void SoundManager::playPhantomCigar()  { enqueue({Cmd::PhantomCigar}); }
+
+void SoundManager::requestRingPattern(std::atomic<bool>* activeFlag, bool useBuzzer) {
+    Request req{Cmd::Ring};
+    req.ringActiveFlag = activeFlag;
+    req.ringUseBuzzer = useBuzzer;
+    enqueue(req);
+}
+
+// =====================================================================
+// Worker — única task que de fato toca som, uma coisa de cada vez.
+// =====================================================================
+
+void SoundManager::workerTask(void* param) {
+    auto* self = static_cast<SoundManager*>(param);
+    Request req;
+
+    for (;;) {
+        if (xQueueReceive(self->_requestQueue, &req, portMAX_DELAY) == pdTRUE) {
+            self->processRequest(req);
+        }
+    }
+}
+
+void SoundManager::processRequest(const Request& req) {
+    switch (req.cmd) {
+        case Cmd::Click:
+            playToneBlocking(1500.0f, 40, 0.2f);
+            break;
+
+        case Cmd::BootBeep:
+            Serial.println("[Sound] beep de confirmação de boot");
+            playToneBlocking(1200.0f, 80, 0.25f);
+            playSilenceBlocking(30);
+            playToneBlocking(1800.0f, 60, 0.25f);
+            break;
+
+        case Cmd::SnoozeConfirm:
+            for (int i = 0; i < 3; i++) {
+                playToneBlocking(1800.0f, 70, 0.25f);
+                playSilenceBlocking(80);
+            }
+            break;
+
+        case Cmd::AlarmOff:
+            playToneBlocking(1600.0f, 120, 0.25f);
+            playSilenceBlocking(40);
+            playToneBlocking(700.0f, 180, 0.25f);
+            break;
+
+        case Cmd::PhantomCigar:
+            playSampleBlocking(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
+            break;
+
+        case Cmd::Ring: {
+            if (!req.ringActiveFlag) break;
+            uint32_t startMs = millis();
+
+            while (req.ringActiveFlag->load() && (millis() - startMs) < RING_TIMEOUT_SAFETY_MS) {
+                if (req.ringUseBuzzer) {
+                    playBuzzerToneBlocking(1500.0f, 150);
+                    if (!req.ringActiveFlag->load()) break;
+                    playSilenceBlocking(120);
+                    if (!req.ringActiveFlag->load()) break;
+                    playBuzzerToneBlocking(1500.0f, 150);
+                    if (!req.ringActiveFlag->load()) break;
+                    playSilenceBlocking(120);
+                    if (!req.ringActiveFlag->load()) break;
+                    playBuzzerToneBlocking(1500.0f, 150);
+                    if (!req.ringActiveFlag->load()) break;
+                    playSilenceBlocking(600);
+                } else {
+                    playSampleBlocking(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE); // ~8s
+                    if (!req.ringActiveFlag->load()) break;
+                    playSilenceBlocking(300);
+                }
+            }
+            break;
+        }
+    }
+}
+
+// =====================================================================
+// Primitivas bloqueantes — só chamadas de dentro da workerTask.
+// =====================================================================
+
+void SoundManager::playToneBlocking(float freqHz, uint32_t durationMs, float amplitude) {
     if (!_initialized) return;
 
     const int totalSamples = AudioCfg::SAMPLE_RATE * durationMs / 1000;
@@ -70,7 +179,7 @@ void SoundManager::playTone(float freqHz, uint32_t durationMs, float amplitude) 
 // Escreve silêncio real no I2S (em vez de delay()) — mantém o DMA
 // alimentado e evita o degrau de tensão que fica quando o buffer segura
 // a última amostra.
-void SoundManager::playSilence(uint32_t durationMs) {
+void SoundManager::playSilenceBlocking(uint32_t durationMs) {
     if (!_initialized) return;
 
     const int totalSamples = AudioCfg::SAMPLE_RATE * durationMs / 1000;
@@ -85,31 +194,7 @@ void SoundManager::playSilence(uint32_t durationMs) {
     }
 }
 
-void SoundManager::beepBoot() {
-    Serial.println("[Sound] beep de confirmação de boot");
-    playTone(1200.0f, 80, 0.25f);
-    playSilence(30);
-    playTone(1800.0f, 60, 0.25f);
-}
-
-void SoundManager::playClick() {
-    playTone(1500.0f, 40, 0.2f);
-}
-
-void SoundManager::playSnoozeConfirm() {
-    for (int i = 0; i < 3; i++) {
-        playTone(1800.0f, 70, 0.25f);
-        delay(80);
-    }
-}
-
-void SoundManager::playAlarmOff() {
-    playTone(1600.0f, 120, 0.25f);
-    delay(40);
-    playTone(700.0f, 180, 0.25f);
-}
-
-void SoundManager::playSample(const uint8_t* samples, size_t count, uint32_t sampleRate) {
+void SoundManager::playSampleBlocking(const uint8_t* samples, size_t count, uint32_t sampleRate) {
     if (!_initialized || samples == nullptr || count == 0) return;
 
     i2s_set_sample_rates(I2S_PORT, sampleRate);
@@ -128,14 +213,10 @@ void SoundManager::playSample(const uint8_t* samples, size_t count, uint32_t sam
         written += chunk;
     }
 
-    i2s_set_sample_rates(I2S_PORT, AudioCfg::SAMPLE_RATE); // restaura a taxa usada por playTone()/beepBoot()
+    i2s_set_sample_rates(I2S_PORT, AudioCfg::SAMPLE_RATE); // restaura a taxa usada por playToneBlocking()
 }
 
-void SoundManager::playPhantomCigar() {
-    playSample(ALARM_SAMPLE_DATA, ALARM_SAMPLE_LEN, ALARM_SAMPLE_RATE);
-}
-
-void SoundManager::playBuzzerTone(float freqHz, uint32_t durationMs) {
+void SoundManager::playBuzzerToneBlocking(float freqHz, uint32_t durationMs) {
     if (!_initialized) return;
     tone(Pins::Audio::BUZZER, (uint32_t)freqHz);
     delay(durationMs);
