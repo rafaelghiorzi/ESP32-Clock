@@ -1,4 +1,5 @@
-// V1.0!
+// V1.1 — pinout remapeado pra montagem em placa perfurada (ver README.md
+// para a tabela completa de mudanças em relação à v1.0).
 
 #pragma once
 #include <Arduino.h>
@@ -19,58 +20,61 @@ namespace Pins {
 
     // ---------- Display ILI9341 (SPI, sem touch) ----------
     namespace Display {
-        constexpr uint8_t CS   = 14;
-        constexpr uint8_t RST  = 13;
-        constexpr uint8_t DC   = 12;
-        constexpr uint8_t MOSI = 11;
-        constexpr uint8_t SCK  = 10;
+        constexpr uint8_t CS   = 4;
+        constexpr uint8_t RST  = 5;
+        constexpr uint8_t DC   = 6;
+        constexpr uint8_t MOSI = 7;
+        constexpr uint8_t SCK  = 15;
         constexpr int8_t  MISO = -1; // não conectado
 
-        // Backlight agora passa por um MOSFET IRLZ44N (dreno no 3.3V,
-        // fonte no pino "LED" do display, gate aqui via resistor de
-        // 100Ω + pull-down de 10kΩ pro GND) -> PWM real via LEDC, em vez
-        // de ligado direto no 3.3V sem controle nenhum.
-        constexpr uint8_t BACKLIGHT = 7;
+        // Backlight passa por um MOSFET IRLZ44N (dreno no 3.3V, fonte no
+        // pino "LED" do display, gate aqui via resistor de 100Ω +
+        // pull-down de 10kΩ pro GND) -> PWM real via LEDC, em vez de
+        // ligado direto no 3.3V sem controle nenhum.
+        constexpr uint8_t BACKLIGHT = 16;
     }
 
     // ---------- Áudio — MAX98357A (I2S, mono) ----------
     // GAIN fixo em 5V (ganho 6dB) e SD flutuando (soma L+R / mono) são só
-    // fiação, sem GPIO associado.
+    // fiação, sem GPIO associado. VIN/GND levam desacoplamento (cerâmico +
+    // eletrolítico, os dois em paralelo entre VIN e GND, não em série).
     namespace Audio {
-        constexpr uint8_t LRC  = 6; // WS
-        constexpr uint8_t BCLK = 5;
-        constexpr uint8_t DIN  = 4;
+        constexpr uint8_t LRC  = 9;  // WS
+        constexpr uint8_t BCLK = 10;
+        constexpr uint8_t DIN  = 11;
 
         // Buzzer piezo PASSIVO (não ativo — precisa de sinal de frequência
-        // variável pra tocar notas diferentes; um buzzer ativo só apita
-        // numa frequência fixa e não serve aqui). Ainda não montado.
-        // Ligação: GPIO -> resistor série de ~100Ω -> um terminal do
-        // buzzer; outro terminal no GND. O resistor protege o GPIO/limita
-        // corrente de pico; não é estritamente obrigatório pra um buzzer
-        // pequeno, mas é barato e recomendado. Não precisa de transistor
-        // pra volumes baixos/médios (a corrente de um piezo é bem baixa);
-        // se quiser mais volume depois, um NPN tipo 2N2222 como driver
-        // simples ajuda.
+        // variável pra tocar notas diferentes). Driver a transistor NPN
+        // (MPS2222) pra ganhar volume: o buzzer fica entre 5V e o Coletor,
+        // Emissor no GND, e este pino aciona a Base através de um
+        // resistor de 4.7kΩ — o GPIO só controla o transistor, não
+        // alimenta o buzzer diretamente (dá uma oscilação de quase 5V no
+        // buzzer em vez dos 3.3V de um GPIO puro, bem mais alto).
         constexpr uint8_t BUZZER = 47;
     }
 
-    // ---------- RTC — DS3231 (I2C) — usado a partir da Etapa 4 ----------
+    // ---------- RTC — DS3231 (I2C) ----------
     // Módulo breakout comum (com bateria CR2032) já tem pull-ups 4.7k
-    // onboard — não adicionar externamente.
+    // onboard — não adicionar externamente. VCC vem do 3.3V por fio
+    // isolado direto (não passa pelo pino RX nem por nenhum outro pino
+    // no caminho).
     // ATENÇÃO: SCL/SDA aqui não são os pinos default do Wire no S3 —
     // chamar Wire.begin(Pins::RTC::SDA, Pins::RTC::SCL) explicitamente.
     namespace RTC {
-        constexpr uint8_t SCL = 1;
-        constexpr uint8_t SDA = 2;
+        constexpr uint8_t SDA = 1;
+        constexpr uint8_t SCL = 2;
     }
 
-    // ---------- Botões (5x) — usados a partir da Etapa 3 ----------
+    // ---------- Botões (5x) ----------
+    // Do lado oposto da placa em relação ao resto (motivo de layout na
+    // perfurada) — todos fora das faixas reservadas (em especial longe de
+    // 33-37, que são a PSRAM octal, e de 0/45, que são strapping pins).
     namespace Buttons {
-        constexpr uint8_t BTN1 = 15;
-        constexpr uint8_t BTN2 = 16;
-        constexpr uint8_t BTN3 = 17;
-        constexpr uint8_t BTN4 = 18;
-        constexpr uint8_t BTN5 = 8;
+        constexpr uint8_t BTN1 = 38;
+        constexpr uint8_t BTN2 = 39;
+        constexpr uint8_t BTN3 = 40;
+        constexpr uint8_t BTN4 = 41;
+        constexpr uint8_t BTN5 = 42;
     }
 
 } // namespace Pins
@@ -197,14 +201,12 @@ namespace BacklightCfg {
 }
 
 // =====================================================================
-// BUZZER — piezo passivo, alimentado só pelos 3.3V do GPIO (via resistor
-// série) sem estágio de amplificação -> volume é fundamentalmente
-// limitado por hardware. Uma coisa de graça que ajuda: piezos têm um pico
-// de volume bem pronunciado na frequência de ressonância deles (varia por
-// modelo, comum entre ~2 e 4.5kHz pros de 12mm) — mude o valor abaixo e
-// teste ao vivo pra achar o ponto mais alto do seu buzzer específico.
-// Se isso não bastar, o fix de verdade é hardware (driver a transistor
-// alimentado em 5V em vez de bater direto no GPIO de 3.3V).
+// BUZZER — agora com driver a transistor (ver Pins::Audio::BUZZER),
+// alimentado em 5V em vez de bater direto no GPIO de 3.3V — bem mais alto
+// que antes. Ainda assim, piezos têm um pico de volume bem pronunciado na
+// frequência de ressonância deles (varia por modelo, comum entre ~2 e
+// 4.5kHz pros de 12mm) — mude o valor abaixo e teste ao vivo pra achar o
+// ponto mais alto do seu buzzer específico.
 // =====================================================================
 namespace BuzzerCfg {
     constexpr float RING_FREQ_HZ = 1500.0f;
