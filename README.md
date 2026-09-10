@@ -2,7 +2,7 @@
 
 Relógio de mesa inteligente baseado em ESP32-S3, com display TFT, hora sincronizada via NTP+RTC, clima via API, controle de luzes Yeelight, até 5 alarmes configuráveis por uma página web própria, buzzer e alto-falante, brilho automático dia/noite, e atualização de firmware/logs por WiFi.
 
-**Status: v1.0 — funcional, testado em hardware real.**
+**Status: v1.1 — funcional, testado em hardware real. Pinout remapeado pra montagem em placa perfurada (veja o changelog no fim deste README).**
 
 ---
 
@@ -49,27 +49,27 @@ Placa: **ESP32-S3 N16R8**. Pinos reservados que **nunca** devem ser usados para 
 
 | Periférico | Sinal | GPIO |
 |---|---|---|
-| **Display ILI9341** | CS | 14 |
-| | RESET | 13 |
-| | DC | 12 |
-| | MOSI (SDI) | 11 |
-| | SCK | 10 |
+| **Display ILI9341** | CS | 4 |
+| | RESET | 5 |
+| | DC | 6 |
+| | MOSI (SDI) | 7 |
+| | SCK | 15 |
 | | MISO | não conectado |
-| | Backlight (via MOSFET) | 7 |
-| **MAX98357A (áudio)** | LRC (WS) | 6 |
-| | BCLK | 5 |
-| | DIN | 4 |
+| | Backlight (via MOSFET) | 16 |
+| **MAX98357A (áudio)** | LRC (WS) | 9 |
+| | BCLK | 10 |
+| | DIN | 11 |
 | | VIN | 5V (obrigatório) |
 | | GAIN | 5V (fixo, ganho 6dB) |
 | | SD | flutuando (mono) |
-| **Buzzer piezo** | Sinal | 47 |
-| **DS3231 (RTC, I2C)** | SCL | 1 |
-| | SDA | 2 |
-| **Botões** | BTN1 | 15 |
-| | BTN2 | 16 |
-| | BTN3 | 17 |
-| | BTN4 | 18 |
-| | BTN5 | 8 |
+| **Buzzer piezo** | Base do transistor (via 4.7kΩ) | 47 |
+| **DS3231 (RTC, I2C)** | SDA | 1 |
+| | SCL | 2 |
+| **Botões** | BTN1 | 38 |
+| | BTN2 | 39 |
+| | BTN3 | 40 |
+| | BTN4 | 41 |
+| | BTN5 | 42 |
 
 ### Mapeamento dos botões (fora do alarme tocando)
 
@@ -85,9 +85,10 @@ Quando um alarme está tocando, os botões mudam de função: **BTN5** ativa son
 
 ## Fiação — pontos de atenção
 
-- **Backlight**: o MOSFET IRLZ44N fica em série entre o 3.3V e o pino "LED" do display (não entre o backlight e o GND — a maioria dos módulos ILI9341 de 8 pinos tem o retorno do backlight compartilhado com o GND geral do módulo). Gate do MOSFET recebe o GPIO7 através de um resistor de ~100-220Ω, com um pull-down de 10kΩ entre Gate e GND (evita flash aleatório do backlight no boot, antes do firmware configurar o pino).
-- **Buzzer**: GPIO47 → resistor série (~100Ω) → um terminal do buzzer; outro terminal no GND. É um piezo **passivo** (precisa de sinal de frequência variável — um buzzer ativo não serve aqui).
-- **Desacoplamento de energia**: capacitor cerâmico (100-220nF) o mais perto fisicamente possível dos pinos de alimentação de cada módulo (ESP32, display, MAX98357A), mais um eletrolítico (100-470µF) no ESP32 e no MAX98357A. Isso existe especificamente para mitigar o flicker do display causado por picos de corrente de transmissão do rádio WiFi (~300-500mA em transições de microssegundos) — sem esse desacoplamento, o backlight (ligado direto na trilha de 3.3V) pisca visivelmente quando o WiFi transmite.
+- **Backlight**: o MOSFET IRLZ44N fica em série entre o 3.3V e o pino "LED" do display (não entre o backlight e o GND — a maioria dos módulos ILI9341 de 8 pinos tem o retorno do backlight compartilhado com o GND geral do módulo). Dreno no 3.3V, fonte no pino "LED", gate recebe o GPIO16 através de um resistor de 100Ω, com um pull-down de 10kΩ entre gate e GND (evita flash aleatório do backlight no boot, antes do firmware configurar o pino).
+- **Buzzer**: driver a transistor NPN (MPS2222/2N2222) pra ganhar volume — o buzzer fica entre **5V** e o **Coletor**, o **Emissor** vai pro GND, e o GPIO47 aciona a **Base** através de um resistor de 4.7kΩ. O GPIO só controla o transistor (que chaveia os 5V), não alimenta o buzzer diretamente — dá uma oscilação bem maior no buzzer do que os 3.3V de um GPIO puro conseguiriam. É um piezo **passivo** (precisa de sinal de frequência variável — um buzzer ativo não serve aqui).
+- **Desacoplamento de energia**: um capacitor cerâmico (100-220nF) **e** um eletrolítico (100-470µF) **em paralelo** (cada um com uma perna no trilho de VIN/3V3 e a outra no trilho de GND — nunca um capacitor "atrás" do outro em série) o mais perto fisicamente possível dos pinos de alimentação de cada módulo (ESP32, display, MAX98357A). Isso existe especificamente para mitigar o flicker do display causado por picos de corrente de transmissão do rádio WiFi (~300-500mA em transições de microssegundos) — sem esse desacoplamento, o backlight (ligado direto na trilha de 3.3V) pisca visivelmente quando o WiFi transmite.
+- **DS3231 VCC**: puxe um fio **isolado** direto do 3.3V até o VCC do módulo — não precisa (e não deve) passar pelo pino RX ou por qualquer outro pino no caminho; fio isolado pode cruzar por cima de outros pinos sem risco de curto.
 - **Aterramento único**: todos os GNDs (fonte, ESP32, display, MAX98357A, DS3231, buzzer) devem se encontrar num único ponto comum.
 - Terminais de parafuso (ex: saída de alto-falante do MAX98357A) são um ponto clássico de falha intermitente — prefira estanhar a ponta do fio antes de prender no parafuso, e solde por cima se o parafuso continuar instável.
 
@@ -203,7 +204,7 @@ Todas as constantes ajustáveis do projeto (pinos, credenciais, timings, valores
 ## Problemas conhecidos e diagnóstico
 
 - **Flicker do backlight ao ligar/durante uso do WiFi**: mitigado via `TX_POWER`/`POWER_SAVE_MODE` reduzidos em software e pelos capacitores de desacoplamento em hardware. Se ainda notar flicker, confira primeiro se os capacitores estão mesmo instalados perto dos pinos certos.
-- **Buzzer com pouco volume**: é esperado — ele é alimentado só pelos 3.3V do GPIO via resistor, sem estágio de amplificação. Testar `BuzzerCfg::RING_FREQ_HZ` perto da ressonância do buzzer ajuda um pouco; o fix definitivo é um driver a transistor (NPN) alimentado em 5V.
+- **Buzzer baixo (resolvido na v1.1)**: na v1.0 o buzzer era alimentado só pelos 3.3V do GPIO via resistor, sem estágio de amplificação. A v1.1 adicionou um driver a transistor NPN (MPS2222) alimentado em 5V (ver [Fiação](#fiação--pontos-de-atenção)) — se ainda estiver baixo, teste `BuzzerCfg::RING_FREQ_HZ` perto da frequência de ressonância do seu buzzer específico (varia por modelo).
 - **"Precisa apertar reset físico depois de desligar/religar a energia"**: sintoma consistente com brownout no power-on (o mesmo problema de fundo do flicker) — o log do motivo do reset (`esp_reset_reason()`, impresso no boot) confirma isso na próxima ocorrência. Fix é hardware (capacitores/fonte), não há solução em software pra esse caso específico (a CPU ainda nem começou a rodar o firmware quando isso acontece).
 - **Conexões intermitentes** (som cortando, etc.): comum em terminais de parafuso e jumpers dupont — teste com multímetro em modo continuidade, flexionando cada fio/conexão, até achar o ponto que falha.
 - Os 5 alarmes salvos na NVS resetam pro padrão sempre que a struct `Alarm` muda de tamanho entre versões do firmware (não há migração automática) — normal ter que reconfigurar após atualizar o firmware se o changelog mencionar mudança nos campos do alarme.
@@ -211,3 +212,34 @@ Todas as constantes ajustáveis do projeto (pinos, credenciais, timings, valores
 ## Código legado
 
 A pasta `deprecated/` contém a versão anterior completa do firmware (antes da reescrita), com todos os arquivos renomeados pra extensão `.txt` de propósito — o Arduino compila recursivamente qualquer `.ino`/`.c`/`.cpp` dentro da pasta do sketch, então essa extensão evita que esses arquivos colidam com o código atual (que reusa os mesmos nomes de classe). Serve só como referência histórica, não é compilado.
+
+## Changelog
+
+### v1.0 → v1.1 — pinout remapeado pra montagem em placa perfurada
+
+Mudança só de hardware/pinout (nenhuma pino de v1.0 tinha sido soldado ainda) — motivada por layout físico na placa perfurada e por dois circuitos novos (driver de buzzer a transistor, backlight via MOSFET). Nenhuma lógica de firmware mudou, só as constantes em `Pins::` dentro de `config.h`.
+
+| Periférico | Sinal | GPIO v1.0 | GPIO v1.1 | Motivo |
+|---|---|---|---|---|
+| Display ILI9341 | CS | 14 | 4 | Reorganização de layout na perfurada |
+| Display ILI9341 | RST | 13 | 5 | Reorganização de layout na perfurada |
+| Display ILI9341 | DC | 12 | 6 | Reorganização de layout na perfurada |
+| Display ILI9341 | MOSI | 11 | 7 | Reorganização de layout na perfurada |
+| Display ILI9341 | SCK | 10 | 15 | Reorganização de layout na perfurada |
+| Display ILI9341 | Backlight (gate MOSFET) | 7 | 16 | Reorganização de layout na perfurada |
+| MAX98357A | LRC (WS) | 6 | 9 | Reorganização de layout na perfurada |
+| MAX98357A | BCLK | 5 | 10 | Reorganização de layout na perfurada |
+| MAX98357A | DIN | 4 | 11 | Reorganização de layout na perfurada |
+| Buzzer piezo | Sinal | 47 (sem mudança) | 47 | Pino igual; o que mudou foi o **circuito** — de resistor série direto pra driver a transistor NPN (ver [Fiação](#fiação--pontos-de-atenção)) |
+| DS3231 | SDA | 2 | 1 | Papéis de SDA/SCL trocados entre si; além disso VCC passou a vir por fio isolado direto no 3.3V (não mais dividindo caminho com o RX) |
+| DS3231 | SCL | 1 | 2 | Papéis de SDA/SCL trocados entre si |
+| Botão 1 | — | 15 | 38 | Botões movidos pro lado oposto da placa (layout na perfurada) |
+| Botão 2 | — | 16 | 39 | Botões movidos pro lado oposto da placa (layout na perfurada) |
+| Botão 3 | — | 17 | 40 | Botões movidos pro lado oposto da placa (layout na perfurada) |
+| Botão 4 | — | 18 | 41 | Botões movidos pro lado oposto da placa (layout na perfurada) |
+| Botão 5 | — | 8 | 42 | Botões movidos pro lado oposto da placa (layout na perfurada) — candidatos iniciais incluíam pinos de PSRAM octal (33-37) e de strapping (0/45), descartados antes de qualquer solda |
+
+Circuitos novos que entraram junto com o remapeamento (não existiam na v1.0):
+- **Backlight via MOSFET IRLZ44N** — antes ligado direto no 3.3V sem controle nenhum; agora em série entre 3.3V e o pino "LED" do display, gate no GPIO16 (100Ω série + 10kΩ pull-down).
+- **Buzzer via transistor NPN (MPS2222)** — antes GPIO direto num resistor série; agora o buzzer fica entre 5V e o Coletor, Emissor no GND, GPIO47 aciona a Base via 4.7kΩ — ganho de volume real.
+- **Desacoplamento de energia** — capacitor cerâmico + eletrolítico em paralelo perto da alimentação de cada módulo (ESP32, display, MAX98357A), mitigando o flicker do display causado por picos de corrente do WiFi.
