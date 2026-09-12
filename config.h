@@ -67,8 +67,20 @@ namespace Pins {
 
     // ---------- Botões (5x) ----------
     // Do lado oposto da placa em relação ao resto (motivo de layout na
-    // perfurada) — todos fora das faixas reservadas (em especial longe de
-    // 33-37, que são a PSRAM octal, e de 0/45, que são strapping pins).
+    // perfurada) — todos fora das faixas reservadas.
+    //
+    // ATENÇÃO — histórico: por uma dificuldade física de montagem, esses
+    // botões chegaram a ser fiados em 45/0/35/36/37. NÃO fazer isso de
+    // novo: 35/36/37 são a PSRAM octal (o controlador de PSRAM usa esse
+    // barramento o tempo inteiro, não só no boot — um botão nesses pinos
+    // gera disputa elétrica constante com a PSRAM, travando o sistema via
+    // watchdog e arriscando dano ao pino/chip; não tem fix de firmware
+    // possível). 0 e 45 são strapping pins — nesse caso específico até
+    // funcionariam (botão simples fio-a-fio, sem resistor externo, não
+    // muda o nível default no reset), mas não há motivo pra correr esse
+    // risco: 38-42 estão livres, fora de qualquer faixa reservada, e bem
+    // mais longe do 1/2 (SDA/SCL do DS3231, que já ocupam bastante espaço
+    // nessa borda da placa).
     namespace Buttons {
         constexpr uint8_t BTN1 = 38;
         constexpr uint8_t BTN2 = 39;
