@@ -93,20 +93,6 @@ void loop() {
 
     Buttons.update();
 
-    // DEBUG TEMPORÁRIO — diagnóstico do BTN5 (GPIO21) sem passar pelo
-    // ButtonManager, pra isolar se o problema é no pino/fiação (nível
-    // nunca muda) ou na lógica de software (nível muda mas "clicked"
-    // não dispara). Remover depois de resolvido.
-    {
-        static uint32_t lastBtn5DebugMs = 0;
-        uint32_t nowDebug = millis();
-        if (nowDebug - lastBtn5DebugMs >= 300) {
-            lastBtn5DebugMs = nowDebug;
-            Serial.printf("[Debug] GPIO%u (BTN5) raw digitalRead = %d\n",
-                          Pins::Buttons::BTN5, digitalRead(Pins::Buttons::BTN5));
-        }
-    }
-
     bool b1 = Buttons.button1Clicked();
     bool b2 = Buttons.button2Clicked();
     bool b3 = Buttons.button3Clicked();

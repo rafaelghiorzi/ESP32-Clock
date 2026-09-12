@@ -86,12 +86,20 @@ namespace Pins {
     // EVITADO: é entrada-somente e não tem pull-up interno (diferente de
     // todos os outros pinos), então o INPUT_PULLUP do ButtonManager não
     // funcionaria nele sem um resistor de pull-up externo.
+    //
+    // GPIO21 foi testado e descartado: digitalRead ficava travado em
+    // HIGH mesmo com o botão fechado (confirmado por continuidade no
+    // multímetro) — essa placa (clone N16R8) provavelmente tem um LED
+    // RGB endereçável embutido nesse pino, segurando o nível com força
+    // suficiente pra vencer o curto do botão pro GND. Não usar esse pino
+    // pra GPIO de propósito geral nessa placa. BTN5 foi pro GPIO40 no
+    // lugar — vizinho do 38/39, sem precisar de resistor externo.
     namespace Buttons {
         constexpr uint8_t BTN1 = 38;
         constexpr uint8_t BTN2 = 39;
         constexpr uint8_t BTN3 = 0;
         constexpr uint8_t BTN4 = 45;
-        constexpr uint8_t BTN5 = 21;
+        constexpr uint8_t BTN5 = 40;
     }
 
 } // namespace Pins
